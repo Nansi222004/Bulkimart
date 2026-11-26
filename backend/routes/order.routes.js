@@ -6,6 +6,7 @@ import {
   getMyOrders,
   getOrderById,
   trackOrder,
+  reportNotReceived,
   cancelOrder,
   requestReturn,
 } from '../controllers/order.controller.js';
@@ -30,6 +31,7 @@ router.post('/checkout-status', getCheckoutStatus);
 
 router.get('/:id', getOrderById);
 router.get('/:id/track', trackOrder);
+router.post('/:id/not-received', reportNotReceived);
 router.get('/:id/invoices', getOrderInvoices);
 router.get('/:id/credit-notes', getOrderCreditNotes);
 router.post('/:id/delivery-rating', rateDeliveryPartner);

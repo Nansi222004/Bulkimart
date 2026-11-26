@@ -4,7 +4,7 @@
 import RazorpayCheckout from 'react-native-razorpay';
 import { api } from './apiClient';
 
-const VERIFY_PATHS = ['/api/sellers/shiprocket-fees/verify'];
+const VERIFY_PATHS = ['/api/sellers/shiprocket-fees/verify', '/api/sellers/fbb/payments/verify'];
 
 let opening = false;
 

@@ -71,7 +71,7 @@ export default function ParcelBookingFlow({ policy, flags, addresses = [], profi
   const storageKey = parcelDraftKey(profile?._id);
   const [state, setState] = useState(() => readParcelDraft(storageKey, initialParcelJourney(profile, policy)));
   const [busy, setBusy] = useState(false), [error, setError] = useState(''), [notice, setNotice] = useState(''), [now, setNow] = useState(Date.now());
-  const [sheet, setSheet] = useState(null), [termsOpen, setTermsOpen] = useState(false), [mapOpen, setMapOpen] = useState(false), [showAddresses, setShowAddresses] = useState(false), [goodsDraft, setGoodsDraft] = useState(null);
+  const [sheet, setSheet] = useState(null), [termsOpen, setTermsOpen] = useState(false), [mapOpen, setMapOpen] = useState(false), [showAddresses, setShowAddresses] = useState(false), [goodsDraft, setGoodsDraft] = useState(null), [addressEdit, setAddressEdit] = useState({});
   const generation = useRef(0), lock = useRef(false), mounted = useRef(true), controller = useRef(null), latest = useRef(state);
   latest.current = state;
   const vehicleMode = parcelVehicleMode(policy);
@@ -245,15 +245,20 @@ export default function ParcelBookingFlow({ policy, flags, addresses = [], profi
     const kind = state.step === 'pickupDetails' ? 'pickup' : 'dropoff', a = state[kind], pickup = kind === 'pickup';
     const mine = profile?.phone && a.phone === profile.phone && a.name === (profile.name || a.name);
     const edit = (key, value) => change({ [kind]: { ...a, [key]: value } });
+    // Search results and the map pin can carry a wrong street or pincode: the customer can always correct both.
+    // Once corrected it is a new address, not the saved one it came from.
+    const fix = (key, value) => change({ [kind]: { ...a, [key]: value, savedId: '' } });
+    const editingAddress = Boolean(addressEdit[kind] || a.approximate || !a.address?.trim());
     return <form className="parcel-booking-flow parcel-details-screen" onSubmit={e => { e.preventDefault(); confirmDetails(kind); }}>
       {header(pickup ? 'Pickup details' : 'Drop details')}
       <div className="parcel-map-hero"><span className={'parcel-pin-tip ' + kind}>{pickup ? 'Your goods will be picked from here' : 'Your goods will be dropped here'}</span>
         <ParcelMap pickup={pickup ? a : undefined} dropoff={pickup ? undefined : a} editable={kind} onPinChange={p => change({ [kind]: { ...a, lat: p.lat, lng: p.lng, approximate: true, savedId: '' } })}/></div>
       <section className="parcel-card parcel-details-card">
-        <div className="parcel-details-address"><span className={'parcel-stop-dot ' + kind} aria-hidden="true"/><div><strong>{a.address.split(',')[0] || 'Selected location'}</strong><small>{a.address}</small>{a.approximate && <small>Pin moved — check the address and pincode.</small>}</div><button type="button" className="parcel-outline-button" onClick={() => go(kind)}>Change</button></div>
+        <div className="parcel-details-address"><span className={'parcel-stop-dot ' + kind} aria-hidden="true"/><div><strong>{a.address.split(',')[0] || 'Selected location'}</strong><small>{a.address}</small>{a.approximate && <small>Pin moved — check the address and pincode below.</small>}{!editingAddress && <button type="button" className="parcel-link-button" onClick={() => setAddressEdit(s => ({ ...s, [kind]: true }))}>Address or pincode wrong? Edit it</button>}</div><button type="button" className="parcel-outline-button" onClick={() => go(kind)}>Change</button></div>
         {messages}
+        {editingAddress && <label>Street, area and city<textarea name={kind + '.address'} required rows={2} maxLength={400} value={a.address || ''} onChange={e => fix('address', e.target.value)}/></label>}
         <label>House / Apartment / Shop (optional)<input name={kind + '.building'} maxLength={100} value={a.building || ''} onChange={e => edit('building', e.target.value)}/></label>
-        {!/^\d{6}$/.test(a.pincode || '') && <label>Pincode<input name={kind + '.pincode'} required inputMode="numeric" pattern="[0-9]{6}" maxLength={6} value={a.pincode || ''} onChange={e => edit('pincode', e.target.value.replace(/\D/g, ''))}/></label>}
+        <label>Pincode<input name={kind + '.pincode'} required inputMode="numeric" pattern="[0-9]{6}" maxLength={6} value={a.pincode || ''} onChange={e => fix('pincode', e.target.value.replace(/\D/g, ''))}/></label>
         <label>{pickup ? 'Sender’s name' : 'Receiver’s name'}<input name={kind + '.name'} required maxLength={100} autoComplete="name" value={a.name || ''} onChange={e => edit('name', e.target.value)}/></label>
         <label>{pickup ? 'Sender’s mobile number' : 'Receiver’s mobile number'}<input name={kind + '.phone'} required type="tel" maxLength={16} pattern="\+?[1-9][0-9]{9,14}" autoComplete="tel" value={a.phone || ''} onChange={e => edit('phone', e.target.value)}/></label>
         {profile?.phone && <label className="parcel-check"><input type="checkbox" checked={Boolean(mine)} onChange={e => change({ [kind]: { ...a, ...(e.target.checked ? { name: profile.name || a.name, phone: profile.phone } : { name: '', phone: '' }) } })}/>Use my mobile number: {profile.phone}</label>}

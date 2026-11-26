@@ -46,5 +46,6 @@ export const hasLiveRider = (track, order) => {
 };
 
 /** The opposite: a courier has it, and there is nothing live to follow. */
+// 'external' = a Self Delivery parcel with the seller's own courier (tracking entered by the seller).
 export const goesByCourier = (track, order) =>
-  (track?.deliveryType || order?.deliveryType) === 'shiprocket';
+  ['shiprocket', 'external'].includes(track?.deliveryType || order?.deliveryType);

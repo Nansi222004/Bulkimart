@@ -635,9 +635,11 @@ export const StockTab = () => {
                           </button>
                         </div>
                       ) : (
+                        p.raw?.deliveryMethod === 'fbb' ? <span className="seller-fbb-stock-note" title="Stock for Fulfilled by Bulkimart products is set by the Bulkimart warehouse">Managed by Bulkimart warehouse</span> : (
                         <button className="action-adjust-btn" onClick={() => startAdjust(p)}>
                           Adjust Stock
                         </button>
+                        )
                       )}
                     </div>
                   </div>
@@ -838,12 +840,14 @@ export const StockTab = () => {
                             </button>
                           </div>
                         ) : (
+                          p.raw?.deliveryMethod === 'fbb' ? <span className="seller-fbb-stock-note" title="Stock for Fulfilled by Bulkimart products is set by the Bulkimart warehouse">Managed by Bulkimart warehouse</span> : (
                           <button
                             className="action-adjust-btn"
                             onClick={() => startAdjust(p)}
                           >
                             Adjust Stock
                           </button>
+                          )
                         )}
                       </td>
                     </tr>

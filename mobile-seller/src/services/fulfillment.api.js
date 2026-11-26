@@ -23,6 +23,16 @@ export const selectManualFulfillment = (orderId, riderId) =>
 export const createShiprocketShipment = (orderId, packageSize, quotedCourierCharge) =>
   api.post(`/api/sellers/orders/${requireId(orderId)}/fulfillment/shiprocket`, { confirm: true, package: packageSize, quotedCourierCharge }, { timeout: 45000 });
 
+// POST /api/sellers/orders/:id/fulfillment/external { courierName, awb, trackingUrl, dispatchDate }
+// Self Delivery only: the seller's own courier. Every field is required; the server re-validates.
+export const dispatchExternalCourier = (orderId, details) =>
+  api.post(`/api/sellers/orders/${requireId(orderId)}/fulfillment/external`, details);
+
+// PATCH /api/sellers/orders/:id/fulfillment/external { action:'correct_tracking', courierName, awb, trackingUrl, reason }
+//                                                 | { action:'delivery_failed', reason }
+export const updateExternalCourier = (orderId, body) =>
+  api.patch(`/api/sellers/orders/${requireId(orderId)}/fulfillment/external`, body);
+
 // Quick Commerce Shiprocket seller fee (backend/controllers/quickShiprocketFee.controller.js).
 // GET → data { snapshot, payment }
 export async function getShiprocketFee(orderId) {

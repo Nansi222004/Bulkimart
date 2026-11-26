@@ -10,7 +10,9 @@ import Seller from '../models/Seller.js';
 import { priceOrder, resolveDeliveryType } from './pricing.service.js';
 import { checkCartSameDayEligibility } from './sameDay.service.js';
 import { applyCouponCode } from './coupon.service.js';
-import { CHANNEL, CHANNELS, DELIVERY_MODE } from '../constants/enums.js';
+import { CHANNEL, CHANNELS, DELIVERY_MODE, DELIVERY_METHOD } from '../constants/enums.js';
+import { effectiveDeliveryMethod, fulfillmentOwnerFor, codAvailabilityFor, fbbSellableFor } from './deliveryMethod.service.js';
+import { selfDeliveryServes, selfDeliveryUnavailableMessage } from './selfDeliveryArea.service.js';
 import { distanceKm } from '../utils/geo.js';
 import { resolveCampaignPricesForProducts, campaignUnitPrice } from './campaign.service.js';
 import { resolveInventoryItem, isUnlimitedDigital } from './inventory.service.js';
@@ -44,7 +46,11 @@ import { quoteWholesaleVariant } from './wholesaleEligibility.service.js';
  * even from the same shop.
  */
 const groupKeyFor = (line) =>
-  [line.channel, String(line.sellerId || line.shgStoreId || 'none'), line.deliveryMode || 'default', ...(line.fulfillmentType === 'digital' ? ['digital'] : [])].join(':');
+  [line.channel, String(line.sellerId || line.shgStoreId || 'none'), line.deliveryMode || 'default',
+    // Delivery method, because Easy Ship, Self Delivery and FBB are fulfilled differently even from
+    // one seller. Easy Ship adds nothing, so every basket that existed before keeps its exact key.
+    ...(line.deliveryMethod && line.deliveryMethod !== DELIVERY_METHOD.EASY_SHIP ? [line.deliveryMethod] : []),
+    ...(line.fulfillmentType === 'digital' ? ['digital'] : [])].join(':');
 
 /**
  * The mode a line is grouped under.
@@ -99,6 +105,7 @@ export const buildFulfilmentGroups = async ({ userId, destination, user, couponC
       items: [],
       totals: { subtotal: 0, deliveryCharge: 0, sameDayPremium: 0, totalAmount: 0, itemCount: 0 },
       needsDeliveryChoice: false,
+      payment: { cod: { available: true } },
     };
   }
 
@@ -110,7 +117,7 @@ export const buildFulfilmentGroups = async ({ userId, destination, user, couponC
    * — its price and stock were true when it was added and may not be now.
    */
   const productIds = [...new Set(lines.map((l) => String(l.productId)))];
-  let productQuery = Product.find({ _id: { $in: productIds } }).select('name price stock sku unit variants type category fulfillmentType sellerId shgStoreId sameDay images isActive isDeleted status sellingChannels gstRate gstPriceType easyReturns');
+  let productQuery = Product.find({ _id: { $in: productIds } }).select('name price stock sku unit variants type category fulfillmentType deliveryMethod sellerId shgStoreId sameDay images isActive isDeleted status sellingChannels gstRate gstPriceType easyReturns');
   if (purchaseMode === 'wholesale') productQuery = Product.find({ _id: { $in: productIds } }).select('+variants.wholesalePricing').populate('category', 'name isActive');
   if (session) productQuery = productQuery.session(session);
   const products = new Map((await productQuery.lean()).map((p) => [String(p._id), p]));
@@ -124,7 +131,7 @@ export const buildFulfilmentGroups = async ({ userId, destination, user, couponC
   const sellerIds = [...new Set(
     [...products.values()].map((p) => String(p.sellerId)).filter((id) => id && id !== 'undefined')
   )];
-  let sellerQuery = Seller.find({ _id: { $in: sellerIds } }).select('businessName storeDetails status sameDay serviceRadiusKm');
+  let sellerQuery = Seller.find({ _id: { $in: sellerIds } }).select('businessName storeDetails status sameDay serviceRadiusKm selfDelivery fbbPilot');
   if (purchaseMode === 'wholesale') sellerQuery = sellerQuery.select('salesChannels wholesaleChannel userId').populate('userId', 'isActive');
   if (session) sellerQuery = sellerQuery.session(session);
   const sellers = new Map((await sellerQuery.lean()).map((s) => [String(s._id), s]));
@@ -167,6 +174,8 @@ export const buildFulfilmentGroups = async ({ userId, destination, user, couponC
       product,
       inventory,
       fulfillmentType: product?.fulfillmentType || 'physical',
+      // The product's delivery method now (Easy Ship when unset); frozen onto the order line at placement.
+      deliveryMethod: effectiveDeliveryMethod(product),
       // The live figures (or a live, currently-active campaign price), so
       // a group is priced on what the item is now rather than what it was
       // when it went into the basket — never a cached deal.
@@ -178,7 +187,9 @@ export const buildFulfilmentGroups = async ({ userId, destination, user, couponC
       campaignId: deal ? deal.campaignId : undefined,
       available: Boolean(product && (purchaseMode === 'wholesale' || channelAllowed(product, line.channel)) && product.type === line.channel && product.type !== 'shg' && !product.shgStoreId
         && (includeDigital || product.fulfillmentType !== 'digital') && product.isActive && !product.isDeleted
-        && product.status === 'approved' && inventory && (includeDigital && product.fulfillmentType === 'digital' ? line.qty === 1 && (isUnlimitedDigital(product) || inventory.stock >= 1) : inventory.stock >= line.qty)),
+        && product.status === 'approved' && inventory && (includeDigital && product.fulfillmentType === 'digital' ? line.qty === 1 && (isUnlimitedDigital(product) || inventory.stock >= 1) : inventory.stock >= line.qty)
+        // FBB stock is sold only while FBB (and its charging) is switched on (stock is the warehouse's verified sellable units).
+        && (effectiveDeliveryMethod(product) !== DELIVERY_METHOD.FBB || fbbSellableFor(sellers.get(String(product.sellerId))))),
     };
 
     const key = groupKeyFor(enriched);
@@ -194,8 +205,22 @@ export const buildFulfilmentGroups = async ({ userId, destination, user, couponC
     const first = groupLines[0];
     const seller = sellers.get(String(first.sellerId));
     if (!seller || seller.status !== 'approved') throw httpError(409, 'A store in your basket is unavailable. Please review your cart.');
-    if (first.fulfillmentType !== 'digital' && !isWithinRadius(seller.storeDetails, destination, seller.serviceRadiusKm)) {
+    // An FBB parcel leaves from Bulkimart's warehouse, not the shop, so the shop's radius does not apply.
+    const fromWarehouse = first.deliveryMethod === DELIVERY_METHOD.FBB;
+    if (first.fulfillmentType !== 'digital' && !fromWarehouse && !isWithinRadius(seller.storeDetails, destination, seller.serviceRadiusKm)) {
       throw httpError(409, `${seller.businessName || 'This store'} does not deliver to this address. Please review your cart.`);
+    }
+    /**
+     * Self Delivery reaches only the seller's declared area (services/selfDeliveryArea.service.js).
+     * Checkout always knows the pincode, so it is enforced there; a preview without one reports
+     * "unknown" (null) rather than "unavailable".
+     */
+    let selfDeliveryServiceable;
+    if (first.deliveryMethod === DELIVERY_METHOD.SELF_DELIVERY) {
+      selfDeliveryServiceable = selfDeliveryServes(seller, destination || {});
+      if (selfDeliveryServiceable === false) {
+        throw httpError(409, selfDeliveryUnavailableMessage(seller.storeDetails?.name || seller.businessName, destination), { code: 'SELF_DELIVERY_NOT_SERVICEABLE' });
+      }
     }
     const isSameDay = first.deliveryMode === DELIVERY_MODE.SAME_DAY;
 
@@ -211,7 +236,8 @@ export const buildFulfilmentGroups = async ({ userId, destination, user, couponC
      * checkout knows whether it can offer the switch.
      */
     let sameDay = null;
-    if (first.fulfillmentType !== 'digital' && first.channel === CHANNEL.ECOM && destination?.lat !== undefined && destination?.lng !== undefined) {
+    // Same-Day is a shop-to-door promise; FBB does not offer it.
+    if (first.fulfillmentType !== 'digital' && !fromWarehouse && first.channel === CHANNEL.ECOM && destination?.lat !== undefined && destination?.lng !== undefined) {
       sameDay = await checkCartSameDayEligibility({
         lines: groupLines.map((l) => ({ product: l.product, seller, qty: l.qty })),
         destination,
@@ -262,6 +288,11 @@ export const buildFulfilmentGroups = async ({ userId, destination, user, couponC
       salesChannel: purchaseMode,
       fulfillmentType: first.fulfillmentType,
       channel: first.channel,
+      // One method per group by construction (see groupKeyFor). Undefined for Quick and digital.
+      deliveryMethod: first.deliveryMethod,
+      fulfillmentOwner: fulfillmentOwnerFor(first.deliveryMethod),
+      // Self Delivery: true = the address is inside the seller's area; null = no pincode yet.
+      ...(selfDeliveryServiceable !== undefined ? { selfDeliveryServiceable } : {}),
       seller: seller ? {
         _id: seller._id,
         name: seller.storeDetails?.name || seller.businessName,
@@ -313,6 +344,7 @@ export const buildFulfilmentGroups = async ({ userId, destination, user, couponC
         productTax: { ...pricing.productTax.lines[index], version: pricing.productTax.version },
         available: l.available,
         fulfillmentType: l.fulfillmentType,
+        deliveryMethod: l.deliveryMethod,
         priceChanged: Number(l.basePrice ?? l.price) !== Number(l.product?.fulfillmentType === 'digital' ? l.price : lines.find(line => String(line._id) === String(l._id))?.price),
         stock: l.inventory?.stock,
         type: l.product?.type || l.channel,
@@ -348,7 +380,9 @@ export const buildFulfilmentGroups = async ({ userId, destination, user, couponC
     });
   }
 
-  checkoutCodFees(groups, codSetting).forEach((fee, index) => { groups[index].codFee = fee; });
+  // Cash on Delivery for the whole checkout: refused when any group is Self Delivery (prepaid only).
+  const cod = codAvailabilityFor(groups.map((g) => g.deliveryMethod));
+  if (cod.available) checkoutCodFees(groups, codSetting).forEach((fee, index) => { groups[index].codFee = fee; });
 
   /**
    * Charged per group, not per basket.
@@ -382,6 +416,8 @@ export const buildFulfilmentGroups = async ({ userId, destination, user, couponC
     totals,
     // Checkout keeps Place Order disabled while this is true.
     needsDeliveryChoice: false,
+    // Which payment methods this basket allows, with the reason when COD is not one of them.
+    payment: { cod },
   };
 };
 

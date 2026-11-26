@@ -6,6 +6,7 @@ import KeyValueRow from './KeyValueRow';
 import { colors, radius, spacing, type } from '../theme';
 import { OFFER_WINDOW_SECONDS } from '../config/env';
 import { formatRupees } from '../utils/money';
+import { ring } from '../services/orderAlert';
 import { routePreviewUrl } from '../utils/location';
 
 const km = (v) => (typeof v === 'number' && Number.isFinite(v) ? `${v} km` : '—');
@@ -25,8 +26,9 @@ export function OrderOfferModal({ offer, onAccept, onDecline, onExpire }) {
     if (!key) return undefined;
     setLeft(OFFER_WINDOW_SECONDS); expired.current = false; setActing(false);
     Vibration.vibrate([0, 600, 400, 600]);
+    const stopRing = ring(); // loops the offer ringtone until this pop-up closes
     const t = setInterval(() => setLeft((s) => (s <= 1 ? 0 : s - 1)), 1000);
-    return () => { clearInterval(t); Vibration.cancel(); };
+    return () => { clearInterval(t); Vibration.cancel(); stopRing(); };
   }, [key]);
 
   useEffect(() => {
@@ -90,8 +92,9 @@ export function ReturnOfferModal({ offer, onAccept, onDecline, onExpire }) {
     if (!key) return undefined;
     setLeft(OFFER_WINDOW_SECONDS); expired.current = false; setActing(false);
     Vibration.vibrate([0, 500, 300, 500]);
+    const stopRing = ring(); // loops the offer ringtone until this pop-up closes
     const t = setInterval(() => setLeft((s) => (s <= 1 ? 0 : s - 1)), 1000);
-    return () => { clearInterval(t); Vibration.cancel(); };
+    return () => { clearInterval(t); Vibration.cancel(); stopRing(); };
   }, [key]);
 
   useEffect(() => {
@@ -154,8 +157,9 @@ export function ParcelOfferModal({ booking, onAccept, onDecline, onExpire }) {
     if (!key) return undefined;
     setLeft(secondsLeft(booking.offer.expiresAt)); expired.current = false; setActing(false);
     Vibration.vibrate([0, 600, 400, 600]);
+    const stopRing = ring(); // loops the offer ringtone until this pop-up closes
     const t = setInterval(() => setLeft(secondsLeft(booking.offer.expiresAt)), 500);
-    return () => { clearInterval(t); Vibration.cancel(); };
+    return () => { clearInterval(t); Vibration.cancel(); stopRing(); };
   }, [key]); // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => {

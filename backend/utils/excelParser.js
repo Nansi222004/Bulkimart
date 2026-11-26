@@ -30,7 +30,7 @@ export const BULK_COLUMNS = [
  * @param {Array<Object>} categoriesTree - Pre-fetched categories from MongoDB
  * @returns {Promise<Buffer>} Excel buffer
  */
-export async function generateBulkTemplateExcelJS(categoriesTree = [], mode = 'ecommerce', categoryHierarchy = [], fieldColumns = []) {
+export async function generateBulkTemplateExcelJS(categoriesTree = [], mode = 'ecommerce', categoryHierarchy = [], fieldColumns = [], { deliveryMethodColumn = false } = {}) {
   const workbook = new ExcelJS.Workbook();
 
   // Sheet 1: Main Product Template
@@ -177,6 +177,8 @@ export async function generateBulkTemplateExcelJS(categoriesTree = [], mode = 'e
     { header: 'Sell Price (₹)', key: 'sellPrice', width: 16 },
     { header: 'MRP Price (₹)', key: 'mrpPrice', width: 16 },
     { header: 'Stock', key: 'stock', width: 14 },
+    // Shop All only, once delivery methods are switched on (services/deliveryMethod.service.js).
+    ...(deliveryMethodColumn ? [{ header: 'Delivery Method', key: 'deliveryMethod', width: 18 }] : []),
     // One column per Category Field (Admin → Category Fields). "[code]" is how the upload finds the field.
     ...fieldColumns.map((f) => ({ header: `${f.label} [${f.code}]`, key: `field_${f.code}`, width: Math.min(40, Math.max(18, f.label.length + 10)), field: f })),
   ];
@@ -198,6 +200,7 @@ export async function generateBulkTemplateExcelJS(categoriesTree = [], mode = 'e
     sellPrice: 'Required. Selling price, up to 2 decimals.',
     mrpPrice: 'Optional. Must be at least the Sell Price. Default: Sell Price.',
     stock: 'Required. Whole number, 0 or more.',
+    deliveryMethod: 'Optional. Easy Ship (default — Shiprocket) or Self Delivery (you deliver; prepaid orders only). Fill it on the first row of the product.',
   };
   const fieldNote = (f) => {
     const typeText = {
@@ -285,6 +288,7 @@ export async function generateBulkTemplateExcelJS(categoriesTree = [], mode = 'e
     99,      // Sell Price example
     149,     // MRP Price example (must be >= Sell Price)
     10,
+    ...(deliveryMethodColumn ? ['Easy Ship'] : []),
   ];
 
   const mockRow = worksheet.getRow(3);
@@ -353,6 +357,13 @@ export async function generateBulkTemplateExcelJS(categoriesTree = [], mode = 'e
       type: 'custom', allowBlank: true, formulae: [`${colMrp}${rowIdx}>=${colPrice}${rowIdx}`], showErrorMessage: true, errorStyle: 'stop',
       errorTitle: 'Invalid MRP Price', error: 'MRP Price must be greater than or equal to Sell Price. The MRP is the original/crossed-out price shown to customers.'
     };
+
+    if (deliveryMethodColumn) {
+      worksheet.getCell(`${columnOf('deliveryMethod')}${rowIdx}`).dataValidation = {
+        type: 'list', allowBlank: true, formulae: ['"Easy Ship,Self Delivery"'], showErrorMessage: true, errorStyle: 'stop',
+        errorTitle: 'Invalid Delivery Method', error: 'Choose Easy Ship or Self Delivery.'
+      };
+    }
 
     // Single-choice category fields
     for (const [key, formula] of fieldListFormula) {

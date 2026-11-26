@@ -67,12 +67,16 @@ export const SectionModuleTab = ({ moduleId }) => {
   const inventoryData = useMemo(() => {
     if (moduleId !== 'inventory') return [];
     const base = (products || []).map((p, idx) => {
-      const currentStock = typeof p.stock === 'number' ? p.stock : 45;
-      const isLow = currentStock <= 10;
+      // Real listing stock only; an unknown count is shown as such, never invented.
+      const known = typeof p.stock === 'number';
+      const currentStock = known ? p.stock : '—';
+      const isLow = known && currentStock <= 10;
+      const method = p.deliveryMethod || p.raw?.deliveryMethod;
       return {
         sku: p.sku || ('SKU-' + String(p.id || p._id || idx).slice(-6).toUpperCase()),
         itemName: p.title || p.name || 'Catalogue Product',
-        warehouse: p.type === 'grocery' ? 'Dark Store Hub #1' : 'Central Warehouse',
+        // FBB stock sits in the Bulkimart warehouse (see Fulfilled by Bulkimart); everything else is held by the seller.
+        warehouse: method === 'fbb' ? 'Bulkimart warehouse (FBB)' : (p.channel || p.type) === 'grocery' ? 'Seller store (Quick Commerce)' : 'Seller-held',
         currentStock,
         minThreshold: 10,
         reorderStatus: isLow ? 'Low Stock' : 'Adequate',
@@ -194,8 +198,8 @@ export const SectionModuleTab = ({ moduleId }) => {
 
     'inventory': {
       title: 'Inventory & Stock Control',
-      desc: 'Monitor real-time warehouse and local dark-store stock levels and reorder warnings.',
-      columns: ['SKU Code', 'Item Name', 'Warehouse / Hub', 'Current Stock', 'Min Threshold', 'Reorder Status'],
+      desc: 'Listing stock by where it is held: the seller, or the Bulkimart warehouse for FBB products (manage FBB stock under Fulfilled by Bulkimart).',
+      columns: ['SKU Code', 'Item Name', 'Held by', 'Current Stock', 'Min Threshold', 'Reorder Status'],
       data: inventoryData
     },
 

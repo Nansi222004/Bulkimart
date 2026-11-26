@@ -5,6 +5,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useAuth } from '../context/AuthContext';
 import Icon from './Icon';
 import { MENU_SECTIONS, WEB_ONLY_NOTE } from '../navigation/menuItems';
+import { getSellerFbb } from '../services/fbb.api';
 import { colors, radius, spacing } from '../theme';
 
 const WIDTH = Math.min(340, Math.round(Dimensions.get('window').width * 0.84));
@@ -16,6 +17,13 @@ export default function SideMenu({ visible, onClose, onNavigate }) {
   const { seller, signOut } = useAuth();
   const slide = useRef(new Animated.Value(0)).current;
   const [mounted, setMounted] = useState(visible);
+  const [fbbActive, setFbbActive] = useState(false);
+  useEffect(() => {
+    if (!visible) return undefined;
+    let live = true;
+    getSellerFbb().then((data) => { if (live) setFbbActive(Boolean(data?.active)); }).catch(() => {});
+    return () => { live = false; };
+  }, [visible]);
 
   useEffect(() => {
     if (visible) setMounted(true);
@@ -61,7 +69,7 @@ export default function SideMenu({ visible, onClose, onNavigate }) {
           {MENU_SECTIONS.map((section) => (
             <View key={section.title} style={styles.section}>
               <Text style={styles.sectionTitle}>{section.title.toUpperCase()}</Text>
-              {section.items.map((item) => (
+              {section.items.filter((item) => !item.requiresFbb || fbbActive).map((item) => (
                 <Pressable key={item.route} onPress={() => go(item.route)} accessibilityRole="button" accessibilityHint={item.hint}
                   android_ripple={{ color: 'rgba(7,140,203,0.08)' }} style={styles.item}>
                   <View style={styles.glyphBox}><Icon name={item.icon} size={19} color={colors.primaryDark} /></View>

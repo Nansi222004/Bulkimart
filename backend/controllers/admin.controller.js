@@ -37,7 +37,8 @@ import { notifyRequester } from './ticket.controller.js';
 import { NOTIFICATION_EVENT, notifyRider } from '../services/notification.service.js';
 import DeliveryPayout from '../models/DeliveryPayout.js';
 import SellerPayout from '../models/SellerPayout.js';
-import { DELIVERY_PAYOUT_STATUS } from '../constants/enums.js';
+import { DELIVERY_PAYOUT_STATUS, DELIVERY_METHOD, DELIVERY_METHODS } from '../constants/enums.js';
+import { orderDeliveryMethod, shipmentView } from '../services/deliveryMethod.service.js';
 import { assertAdminTransition } from '../services/ticket.service.js';
 import { TICKET_STATUS, TICKET_MAX_ATTACHMENTS, LEGACY_TICKET_STATUS_MAP } from '../constants/enums.js';
 import { getEligibleWholesaleCatalog } from '../services/wholesaleCatalog.service.js';
@@ -2884,6 +2885,15 @@ export const getVendorOrdersAdmin = asyncHandler(async (req, res) => {
 
   if (sellerId) filter['items.sellerId'] = sellerId;
 
+  // Delivery method filter. Easy Ship includes every Shop All order placed before methods existed.
+  const { deliveryMethod } = req.query;
+  if (deliveryMethod && deliveryMethod !== 'all') {
+    if (!DELIVERY_METHODS.includes(deliveryMethod)) throw httpError(400, 'Unknown delivery method');
+    filter.$and = [...(filter.$and || []), deliveryMethod === DELIVERY_METHOD.EASY_SHIP
+      ? { type: CHANNEL.ECOM, $or: [{ deliveryMethod }, { deliveryMethod: { $exists: false } }] }
+      : { deliveryMethod }];
+  }
+
   if (search && search.trim()) {
     const rx = new RegExp(escapeRegex(search.trim()), 'i');
     const searchConditions = [
@@ -2934,6 +2944,8 @@ export const getVendorOrdersAdmin = asyncHandler(async (req, res) => {
       paymentStatus: o.paymentId?.status || (o.paymentMethod === 'cod' ? 'pay_on_delivery' : 'pending'),
       paymentRefund: o.paymentId?.refund,
       deliveryMode: o.delivery?.mode || o.deliveryType || 'Standard',
+      deliveryMethod: orderDeliveryMethod(o) || null,
+      shipment: shipmentView(o),
       vendorDecision: o.vendorDecision || { status: 'pending' },
       fulfillment: o.fulfillment,
       shiprocket: o.shiprocket,

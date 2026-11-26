@@ -68,6 +68,13 @@ import {
 } from '../constants/enums.js';
 import { checkCartSameDayEligibility } from '../services/sameDay.service.js';
 import { buildFulfilmentGroups } from '../services/fulfilmentGroups.service.js';
+import { effectiveDeliveryMethod, fulfillmentOwnerFor, shipmentView, assertPaymentMethodAllowed, fbbSellableFor } from '../services/deliveryMethod.service.js';
+import { chargeTermsForNewOrder } from '../services/fbbCharges.service.js';
+import { assertSelfDeliveryServes } from '../services/selfDeliveryArea.service.js';
+import { assessFbbCheckout, assertFbbCheckoutServiceable, assertFbbWarehouseServiceable, blockedWarehouseIds } from '../services/fbbServiceability.service.js';
+import { externalDeliveryHoldDays } from '../services/externalCourier.service.js';
+import { originSeller } from '../services/fulfilmentOrigin.service.js';
+import { DELIVERY_METHOD } from '../constants/enums.js';
 import { distanceKm } from '../utils/geo.js';
 import { mutateInventory, resolveInventoryItem } from '../services/inventory.service.js';
 import { orderHistoryPaymentStages } from '../services/orderPaymentEligibility.service.js';
@@ -414,7 +421,7 @@ export const createOrder = asyncHandler(async (req, res) => {
     ? { lat: address.lat, lng: address.lng } : undefined;
   const sellerIdsInCart = [...new Set(products.map((p) => p.sellerId).filter(Boolean).map(String))];
   const sellersById = new Map(
-    (await Seller.find({ _id: { $in: sellerIdsInCart } }).select('storeDetails serviceRadiusKm status').lean())
+    (await Seller.find({ _id: { $in: sellerIdsInCart } }).select('businessName storeDetails serviceRadiusKm status selfDelivery fbbPilot').lean())
       .map((s) => [String(s._id), s])
   );
 
@@ -437,7 +444,8 @@ export const createOrder = asyncHandler(async (req, res) => {
     if (!p.sellerId || !sellersById.has(String(p.sellerId)) || sellersById.get(String(p.sellerId)).status !== 'approved') {
       throw httpError(409, 'A store in your basket is unavailable. Please review your cart.');
     }
-    if (p.sellerId) {
+    if (effectiveDeliveryMethod(p) === DELIVERY_METHOD.FBB && !fbbSellableFor(sellersById.get(String(p.sellerId)))) throw httpError(409, `"${p.name}" is not available right now. Please review your cart.`);
+    if (p.sellerId && effectiveDeliveryMethod(p) !== DELIVERY_METHOD.FBB) {
       const seller = sellersById.get(String(p.sellerId));
       if (seller?.serviceRadiusKm !== undefined && seller?.serviceRadiusKm !== null
         && !isWithinRadius(seller.storeDetails, customerLoc, seller.serviceRadiusKm)) {
@@ -466,6 +474,7 @@ export const createOrder = asyncHandler(async (req, res) => {
       originalPrice: inventory.price,
       campaignId: deal ? deal.campaignId : undefined,
       type: p.type,
+      ...(effectiveDeliveryMethod(p) ? { deliveryMethod: effectiveDeliveryMethod(p) } : {}),
       sellerId: p.sellerId,
       categoryId: p.category,
       shgStoreId: p.shgStoreId,
@@ -578,6 +587,19 @@ export const createOrder = asyncHandler(async (req, res) => {
   if (new Set(lines.map(line => String(line.sellerId))).size > 1) {
     throw httpError(409, 'Items from multiple stores require the grouped checkout. Please refresh your basket.');
   }
+  // One order is one fulfilment, so it carries one delivery method; a mix goes through grouped checkout.
+  const orderMethods = [...new Set(lines.map(line => line.deliveryMethod).filter(Boolean))];
+  if (orderMethods.length > 1) {
+    throw httpError(409, 'These items are delivered in different ways and need the grouped checkout. Please refresh your basket.');
+  }
+  const orderDeliveryMethodValue = orderMethods[0];
+  // Self Delivery: prepaid only, and only inside the seller's declared delivery area.
+  assertPaymentMethodAllowed(paymentMethod, orderMethods);
+  if (orderDeliveryMethodValue === DELIVERY_METHOD.FBB && requestedMode === DELIVERY_MODE.SAME_DAY) throw httpError(409, 'Same-day delivery is not available for Fulfilled by Bulkimart items.');
+  if (orderDeliveryMethodValue === DELIVERY_METHOD.SELF_DELIVERY) {
+    const seller = sellersById.get(String(lines[0].sellerId));
+    assertSelfDeliveryServes(seller, address, seller?.storeDetails?.name || seller?.businessName);
+  }
 
   // A cart only ever holds one channel now, so the order type is unambiguous.
   const orderType = channel;
@@ -598,11 +620,16 @@ export const createOrder = asyncHandler(async (req, res) => {
   // belongs to — Order.create below is told to use this same id.
   const orderId = new mongoose.Types.ObjectId();
 
+  // FBB: refuse an address no courier serves from the warehouse (asked before any write; services/fbbServiceability.service.js).
+  const fbbRoutes = orderDeliveryMethodValue === DELIVERY_METHOD.FBB ? await assessFbbCheckout({ shipments: [lines], address, paymentMethod }) : null;
+  assertFbbCheckoutServiceable(fbbRoutes);
+
   // ---- commit -------------------------------------------------------------
   const session = await mongoose.startSession();
   let order;
   let writeStage = 'checkout_attempt.create';
 
+  let singleWarehouseId = null;
   const executeOrderCommit = async (txnSession = null) => {
     const opts = txnSession ? { session: txnSession } : {};
     await fenceCheckoutSellers(lines.map(line => line.sellerId), txnSession);
@@ -616,8 +643,16 @@ export const createOrder = asyncHandler(async (req, res) => {
     }], opts);
     for (const l of lines) {
       writeStage = 'inventory.update';
-      await mutateInventory({ productId: l.productId, variantId: l.variantId, quantity: l.qty, session: txnSession });
+      const moved = await mutateInventory({ productId: l.productId, variantId: l.variantId, quantity: l.qty, session: txnSession, deliveryMethod: l.deliveryMethod, actorType: 'customer', fbbExcludeWarehouseIds: blockedWarehouseIds(fbbRoutes) });
+      if (l.deliveryMethod === DELIVERY_METHOD.FBB) {
+        if (singleWarehouseId && String(singleWarehouseId) !== String(moved.warehouseId)) throw httpError(409, 'These items are stored in different warehouses; order them separately for now.');
+        singleWarehouseId = moved.warehouseId;
+      }
     }
+    if (singleWarehouseId) assertFbbWarehouseServiceable(fbbRoutes, singleWarehouseId);
+    const singleFbbTerms = orderDeliveryMethodValue === DELIVERY_METHOD.FBB ? await chargeTermsForNewOrder(txnSession) : null;
+    // FBB is a paid service: without rates in force the order could never be billed, so it is not placed.
+    if (orderDeliveryMethodValue === DELIVERY_METHOD.FBB && !singleFbbTerms) throw httpError(409, 'Fulfilled by Bulkimart items are not available right now. Please review your cart.');
 
     if (paymentMethod === PAYMENT_METHOD.WALLET) {
       writeStage = 'wallet.debit';
@@ -670,8 +705,13 @@ export const createOrder = asyncHandler(async (req, res) => {
       paymentMethod,
       paymentId: payment._id,
       deliveryType,
+      ...(orderDeliveryMethodValue ? { deliveryMethod: orderDeliveryMethodValue, fulfillmentOwner: fulfillmentOwnerFor(orderDeliveryMethodValue) } : {}),
+      ...(orderDeliveryMethodValue === DELIVERY_METHOD.FBB ? {
+        origin: { kind: 'warehouse', warehouseId: singleWarehouseId },
+        fbb: { status: 'awaiting_acceptance', ...(singleFbbTerms ? { chargeTerms: singleFbbTerms } : {}) },
+      } : {}),
       fulfillment: orderType === CHANNEL.ECOM && requestedMode !== DELIVERY_MODE.SAME_DAY
-        ? { assignmentPolicy: 'seller_after_acceptance' } : undefined,
+        ? { assignmentPolicy: orderDeliveryMethodValue === DELIVERY_METHOD.FBB ? 'warehouse_after_acceptance' : 'seller_after_acceptance' } : undefined,
       delivery: buildDeliverySnapshot({
         channel: orderType,
         mode: sameDay ? DELIVERY_MODE.SAME_DAY : (orderType === CHANNEL.ECOM ? DELIVERY_MODE.SCHEDULED : null),
@@ -810,6 +850,15 @@ export const createOrder = asyncHandler(async (req, res) => {
  *
  * @route POST /api/orders/unified
  */
+/**
+ * Where a grouped checkout is going: coordinates for distance rules, plus the pincode and state the
+ * Self Delivery area is checked against (services/selfDeliveryArea.service.js).
+ */
+const checkoutDestination = (address) => ({
+  ...(address.lat !== undefined && address.lng !== undefined ? { lat: address.lat, lng: address.lng } : {}),
+  pincode: address.pincode, state: address.state,
+});
+
 export const createUnifiedOrder = asyncHandler(async (req, res) => {
   const purchaseMode = req.body.purchaseMode ?? 'retail';
   if (!['retail', 'wholesale', 'basket'].includes(purchaseMode)) throw httpError(400, 'Invalid purchase mode');
@@ -872,9 +921,7 @@ export const createUnifiedOrder = asyncHandler(async (req, res) => {
   let composed = await compose({
     purchaseMode,
     userId: req.user._id,
-    destination: address.lat !== undefined && address.lng !== undefined
-      ? { lat: address.lat, lng: address.lng }
-      : undefined,
+    destination: checkoutDestination(address),
     user: req.user,
   });
 
@@ -907,6 +954,9 @@ export const createUnifiedOrder = asyncHandler(async (req, res) => {
   // cannot half-succeed and leave the customer paying for a delivery that will
   // never leave.
   validateGroupsStock(groups);
+  // FBB: refuse an address no courier serves from the warehouse (asked before the transaction; services/fbbServiceability.service.js).
+  const fbbRoutes = await assessFbbCheckout({ shipments: groups.filter((g) => g.deliveryMethod === DELIVERY_METHOD.FBB).map((g) => g.items), address, paymentMethod });
+  assertFbbCheckoutServiceable(fbbRoutes);
 
   // One basket, one tip — attached to the first order, and paid in
   // full to the rider who carries it.
@@ -923,7 +973,7 @@ export const createUnifiedOrder = asyncHandler(async (req, res) => {
         // Re-read terms/stock in the transaction. Writes to seller, buyer and
         // product documents fence concurrent suspension, deactivation and repricing.
         composed = await compose({ userId: req.user._id, user: req.user,
-          destination: address.lat !== undefined && address.lng !== undefined ? { lat: address.lat, lng: address.lng } : undefined,
+          destination: checkoutDestination(address),
           purchaseMode, session });
         groups = composed.groups;
         if (purchaseMode === 'basket' && (req.body.basketHash !== composed.basketHash || req.body.quoteHash !== composed.quoteHash)) throw httpError(409, 'Basket changed. Refresh and review your cart.', { code: 'BASKET_QUOTE_CHANGED' });
@@ -943,7 +993,7 @@ export const createUnifiedOrder = asyncHandler(async (req, res) => {
         operation: 'unified', status: 'processing',
       }], { session });
       result = await createOrdersFromGroups({
-        user: req.user, address, groups, paymentMethod, notes, session, tip, purchaseMode, cartSnapshots: composed.cartSnapshots,
+        user: req.user, address, groups, paymentMethod, notes, session, tip, purchaseMode, cartSnapshots: composed.cartSnapshots, fbbRoutes,
         beforeWrite: stage => { writeStage = stage; },
       });
       const { orders, payment, groupRef } = result;
@@ -1058,6 +1108,22 @@ export const createUnifiedOrder = asyncHandler(async (req, res) => {
 // @desc    My orders
 // @route   GET /api/orders
 // @access  Private
+/**
+ * Delivery-method fields the customer must not see: the seller's frozen FBB charge rates, warehouse staff and
+ * admin ids, the inspection record, and who a Self Delivery fee is credited to. Removed from every customer
+ * order response (tracking builds its own view and never includes them).
+ */
+const CUSTOMER_HIDDEN_ORDER_FIELDS = ['fbb.chargeTerms', 'fbb.acceptedBy', 'fbb.packedBy', 'fbb.handoffSource', 'fbb.returnInspection',
+  'externalShipment.deliveryFeePayee', 'externalShipment.enteredBy', 'externalShipment.dispute.resolvedBy'];
+const withoutHiddenOrderFields = (order) => {
+  for (const path of CUSTOMER_HIDDEN_ORDER_FIELDS) {
+    const keys = path.split('.');
+    const parent = keys.slice(0, -1).reduce((node, key) => (node && typeof node === 'object' ? node[key] : undefined), order);
+    if (parent && typeof parent === 'object') delete parent[keys.at(-1)];
+  }
+  return order;
+};
+
 export const getMyOrders = asyncHandler(async (req, res) => {
   const { page, limit, skip } = getPagination(req.query);
   const filter = { userId: req.user._id };
@@ -1073,7 +1139,7 @@ export const getMyOrders = asyncHandler(async (req, res) => {
 
   const [history] = await Order.aggregate([{ $match: filter }, ...orderHistoryPaymentStages(),
     { $facet: { rows: [{ $sort: { createdAt: -1 } }, { $skip: skip }, { $limit: limit }], count: [{ $count: 'total' }] } }]);
-  const orders = history?.rows || [];
+  const orders = (history?.rows || []).map(withoutHiddenOrderFields);
   const total = history?.count?.[0]?.total || 0;
 
   return paginated(res, orders, { page, limit, total });
@@ -1091,7 +1157,7 @@ export const getOrderById = asyncHandler(async (req, res) => {
     throw httpError(403, 'This is not your order');
   }
 
-  return ok(res, order);
+  return ok(res, req.userType === 'admin' ? order : withoutHiddenOrderFields(order.toJSON()));
 });
 
 // @desc    Tracking view
@@ -1118,8 +1184,9 @@ export const trackOrder = asyncHandler(async (req, res) => {
    * "nobody is carrying this yet".
    */
   const sellerItem = order.items?.find((i) => i.sellerId);
+  // An FBB order shows the Bulkimart warehouse as its pickup, never the seller's shop.
   const seller = sellerItem
-    ? await Seller.findById(sellerItem.sellerId).select('businessName storeDetails').lean()
+    ? await originSeller(order, await Seller.findById(sellerItem.sellerId).select('businessName storeDetails').lean())
     : null;
 
   const shop = seller?.storeDetails;
@@ -1156,6 +1223,23 @@ export const trackOrder = asyncHandler(async (req, res) => {
     delivery: order.delivery,
     timeline: order.timeline,
     shiprocket: order.deliveryType === 'shiprocket' ? order.shiprocket : undefined,
+    // Delivery method + one shipment summary (provider, AWB, tracking URL, dates) for every method.
+    shipment: shipmentView(order, delivery),
+    // Fulfilled by Bulkimart: the warehouse stages (names and times only; never charge terms).
+    fbb: order.deliveryMethod === 'fbb' ? {
+      status: order.fbb?.status || null,
+      stages: [['placed', 'Order placed', order.createdAt], ['accepted', 'Accepted by Bulkimart', order.fbb?.acceptedAt], ['picking', 'Picking in the warehouse', order.fbb?.pickingAt],
+        ['packed', 'Packed', order.fbb?.packedAt], ['handed_over', 'Left the warehouse', order.fbb?.handedOverAt]].map(([key, label, at]) => ({ key, label, at: at || null, done: Boolean(at) })),
+    } : undefined,
+    // Self Delivery by the seller's own courier: what the customer needs to follow it on the courier's site.
+    externalShipment: order.deliveryType === 'external' && order.externalShipment ? {
+      courierName: order.externalShipment.courierName, awb: order.externalShipment.awb, trackingUrl: order.externalShipment.trackingUrl,
+      status: order.externalShipment.status, dispatchedAt: order.externalShipment.dispatchedAt, deliveredAt: order.externalShipment.deliveredAt,
+      // The customer may report a seller-reported delivery as not received until this time.
+      reportStatus: order.externalShipment.dispute?.status || null,
+      reportableUntil: order.status === 'delivered' && !order.externalShipment.dispute?.status && !order.financialPosting && order.deliveredAt
+        ? new Date(new Date(order.deliveredAt).getTime() + externalDeliveryHoldDays() * 24 * 60 * 60 * 1000) : null,
+    } : undefined,
     placedAt: order.createdAt,
 
     pickup: shop
@@ -1251,6 +1335,8 @@ export const cancelOrder = asyncHandler(async (req, res) => {
   if (order.shiprocket?.orderId || ['creating', 'assigning', 'reconciliation_required'].includes(order.shiprocket?.status)) {
     throw httpError(409, 'This order already has a courier shipment. Cancel it with the provider before cancelling the Bulkimart order.');
   }
+  // An FBB parcel already on its way cannot be put back on sale by a cancellation; it comes back as an RTO and is inspected.
+  if (order.fbb?.handedOverAt) throw httpError(409, 'This order has already left the Bulkimart warehouse and can no longer be cancelled.');
 
   let convertedExchange = null;
   let codFeeMovedTo = null;
@@ -1264,7 +1350,9 @@ export const cancelOrder = asyncHandler(async (req, res) => {
       // Put every unit back before marking it cancelled.
       for (const item of order.items) {
         // E-books only give a copy back if checkout reserved one.
-        if (item.fulfillmentType !== 'digital' || item.stockReserved) await mutateInventory({ productId: item.productId, variantId: item.variantId, quantity: item.qty, session, restore: true });
+        if (item.fulfillmentType !== 'digital' || item.stockReserved) await mutateInventory({ productId: item.productId, variantId: item.variantId, quantity: item.qty, session, restore: true,
+          deliveryMethod: item.deliveryMethod, warehouseId: order.origin?.warehouseId, fbbHandedOver: Boolean(order.fbb?.handedOverAt),
+          reference: { referenceType: 'order', referenceId: order._id }, actorType: 'customer' });
       }
 
       // The customer should not lose a one-per-person coupon to an order they
@@ -1384,7 +1472,30 @@ export const requestReturn = asyncHandler(async (req, res) => {
  *
  * @returns {Promise<{ok: boolean, reason?: string}>}
  */
-export const cancelOrderAndRestore = async (orderId, { reason, allowedFrom, cancelledBy, vendorDecision, suppressNotification = false, courierException = null }) => {
+/**
+ * Admin cancellation of a Self Delivery order whose seller-arranged courier did not deliver
+ * (externalCourier.service.js::adminResolveExternalShipment). Claims only an external order still in the
+ * status and version the admin saw, with no earnings posted, so it cannot race a delivery or a posting.
+ */
+const claimExternalCourierCancellation = async (order, reason, { allowedStatuses, version }, session) => {
+  const result = await Order.updateOne(
+    { _id: order._id, deliveryType: 'external', status: { $in: allowedStatuses }, __v: version, financialPosting: { $exists: false } },
+    { $set: { status: ORDER_STATUS.CANCELLED, cancelReason: reason }, $push: { timeline: { status: ORDER_STATUS.CANCELLED, timestamp: new Date(), note: reason } }, $inc: { __v: 1 } },
+    { session },
+  );
+  if (result.modifiedCount !== 1) throw httpError(409, 'This order has already changed and cannot be cancelled');
+};
+
+// @desc    Customer: a seller-delivered (own courier) order marked delivered never arrived
+// @route   POST /api/orders/:id/not-received
+// @access  Private (the order's customer)
+export const reportNotReceived = asyncHandler(async (req, res) => {
+  const { reportExternalNotReceived } = await import('../services/externalCourier.service.js');
+  const order = await reportExternalNotReceived({ orderId: req.params.id, userId: req.user._id, reason: req.body?.reason });
+  return ok(res, { status: order.status, dispute: order.externalShipment?.dispute }, 'Thanks — we will check with the seller and update you.');
+});
+
+export const cancelOrderAndRestore = async (orderId, { reason, allowedFrom, cancelledBy, vendorDecision, suppressNotification = false, courierException = null, externalCourier = null }) => {
   const order = await Order.findById(orderId);
   if (!order) return { ok: false, reason: 'Order not found' };
 
@@ -1401,12 +1512,36 @@ export const cancelOrderAndRestore = async (orderId, { reason, allowedFrom, canc
   try {
     await session.withTransaction(async () => {
       if (courierException) await claimCourierExceptionCancellation(order, reason, courierException.token, session);
+      else if (externalCourier) await claimExternalCourierCancellation(order, reason, externalCourier, session);
       else await claimCancellation(order, reason, session, vendorDecision ? { vendorDecision } : {});
       order.cancelReason = reason;
       // Put every unit back (for a courier exception, only when the admin confirmed the parcel is back).
+      const handedOver = Boolean(order.fbb?.handedOverAt);
+      const quarantined = [];
       for (const item of order.items) {
-        if (courierException && !courierException.restock) break;
-        if (item.fulfillmentType !== 'digital' || item.stockReserved) await mutateInventory({ productId: item.productId, variantId: item.variantId, quantity: item.qty, session, restore: true });
+        const reference = { referenceType: 'order', referenceId: order._id };
+        // FBB units that never left the warehouse always go back on sale, whatever the cancellation path.
+        if (item.deliveryMethod === 'fbb' && !handedOver) {
+          await mutateInventory({ productId: item.productId, variantId: item.variantId, quantity: item.qty, session, restore: true, deliveryMethod: 'fbb', warehouseId: order.origin?.warehouseId, reference });
+          continue;
+        }
+        // An FBB parcel that left the warehouse and came back (RTO) is never assumed resellable or damaged: its
+        // units wait in quarantine for an admin inspection. A parcel the courier lost adds nothing back.
+        if (item.deliveryMethod === 'fbb') {
+          if (courierException && !courierException.goodsBack) continue;
+          const { warehouseStockOp } = await import('../services/warehouse.service.js');
+          await warehouseStockOp({ op: 'return_quarantine', productId: item.productId, variantId: item.variantId, qty: item.qty, warehouseId: order.origin?.warehouseId,
+            sellerId: item.sellerId, session, actorType: 'admin', reference, note: `${order.orderNo}: back at the warehouse, awaiting inspection` });
+          quarantined.push({ productId: item.productId, variantId: item.variantId, sellerId: item.sellerId, qty: item.qty });
+          continue;
+        }
+        if ((courierException && !courierException.restock) || (externalCourier && !externalCourier.restock)) continue;
+        if (item.fulfillmentType !== 'digital' || item.stockReserved) await mutateInventory({ productId: item.productId, variantId: item.variantId, quantity: item.qty, session, restore: true,
+          deliveryMethod: item.deliveryMethod, warehouseId: order.origin?.warehouseId, fbbHandedOver: handedOver, reference });
+      }
+      if (quarantined.length) {
+        await Order.updateOne({ _id: order._id, 'fbb.returnInspection': { $exists: false } },
+          { $set: { 'fbb.returnInspection': { status: 'pending', arrivedAt: new Date(), lines: quarantined } } }, { session });
       }
 
       if (order.coupon || order.pricing?.couponCode) {

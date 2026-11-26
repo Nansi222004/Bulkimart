@@ -2,6 +2,7 @@ import React, { useCallback, useEffect, useState } from 'react';
 import ModalPortal from '../../../components/ModalPortal';
 import { useAdmin } from '../context/AdminContext';
 import { adminGet, adminPost } from '../../../utils/adminApi';
+import SelfDeliveryIssues from './SelfDeliveryIssues';
 
 /**
  * Shiprocket shipment problems (RTO, lost, damaged, destroyed, cancelled, undelivered) waiting for an admin
@@ -163,6 +164,7 @@ export const ShipmentExceptionsTab = () => {
           </ModalPortal>
         </ModalPortal>
       )}
+      <SelfDeliveryIssues />
     </div>
   );
 };

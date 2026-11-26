@@ -27,6 +27,9 @@ import {
   getWholesaleAvailability,
   previewWholesaleProduct,
   uploadDigitalProductFile,
+  getDeliveryMethodOptions,
+  getFbbChargePreview,
+  convertToFbb,
 } from '../controllers/product.controller.js';
 import { protect, requireRole, requireCustomerSession, requireSellerSession } from '../middlewares/auth.middleware.js';
 import { requireApprovedSeller } from '../middlewares/vendor.middleware.js';
@@ -78,6 +81,10 @@ router.get('/:id/delivery-options', getProductDeliveryOptions);
 // Keep this fixed path above /:id: Express otherwise treats "seller" as a
 // product id and the seller's own listing request fails with a CastError.
 router.get('/seller/mine', protect, requireRole('seller'), getMyProducts);
+// Which delivery methods the product form may offer (Easy Ship / Self Delivery / FBB). Fixed path, above /:id.
+router.get('/seller/delivery-methods', protect, requireRole('seller', 'admin'), getDeliveryMethodOptions);
+router.get('/seller/fbb-charges', protect, requireRole('seller', 'admin'), getFbbChargePreview);
+router.post('/:id/fbb-conversion', protect, requireRole('seller'), requireSellerSession, requireApprovedSeller, convertToFbb);
 
 // Which of a given list this shopper already reviewed — a delivered-order
 // screen's "Rate & Review" vs "already submitted" badge reads this, never

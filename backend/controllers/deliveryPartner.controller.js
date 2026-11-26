@@ -1,6 +1,7 @@
 import { riderIneligibility, riderPickupPosition } from '../services/riderEligibility.service.js';
 import { activeGoTo, goToRouteFilter, goToArrivalCheck } from '../services/goTo.service.js';
 import { storePickup, requireOrderPickup, orderStoreId, pickupCoordinates } from '../services/storePickup.service.js';
+import { originSeller } from '../services/fulfilmentOrigin.service.js';
 import mongoose from 'mongoose';
 import { scheduleRetry } from '../services/retryScheduler.service.js';
 import crypto from 'node:crypto';
@@ -18,7 +19,7 @@ import { asyncHandler } from '../middlewares/error.middleware.js';
 import { ok, httpError, paginated, getPagination } from '../utils/response.js';
 import { uploadToCloudinary } from '../services/cloudinary.service.js';
 import { mediaContext } from '../services/media.service.js';
-import { VENDOR_STATUS, CHANNEL, CHANNELS, riderClaimableStatuses, OFFER_ATTEMPT_STATUS } from '../constants/enums.js';
+import { VENDOR_STATUS, CHANNEL, CHANNELS, riderClaimableStatuses, OFFER_ATTEMPT_STATUS, COURIER_DELIVERY_TYPES } from '../constants/enums.js';
 import { parseLocation, hasUsableLocation, distanceKm, etaMinutes } from '../utils/geo.js';
 import { riderPayout, payoutModeOf, rateSnapshotFor } from '../services/riderPay.service.js';
 import { canTakeAnother, maxConcurrentDeliveries } from '../services/riderCapacity.service.js';
@@ -536,10 +537,12 @@ export const broadcastNewOrderToRiders = async (orderId, attempt = 1) => {
   // Already taken while we were widening the net.
   if (order.deliveryPartnerId) return;
 
-  if (order.deliveryType === 'shiprocket') return;
+  // Courier-carried (Shiprocket, or the seller's own courier): never a rider job.
+  if (COURIER_DELIVERY_TYPES.includes(order.deliveryType)) return;
   let sellerId;
   try { sellerId = orderStoreId(order); } catch { return; }
-  const seller = await Seller.findById(sellerId);
+  // The pickup is the shop, or the Bulkimart warehouse for an FBB order (fulfilmentOrigin.service.js).
+  const seller = await originSeller(order, await Seller.findById(sellerId));
   const storePosition = storePickup(seller);
   if (!storePosition) {
     console.warn(`[RIDER BROADCAST] ${order.orderNo}: store has no pinned location — cannot find riders`);
@@ -1054,7 +1057,7 @@ export const acceptOrder = asyncHandler(async (req, res) => {
     const existingDelivery = await Delivery.findOne({ _id: candidate.deliveryId, orderId: candidate._id, partnerId: partner._id });
     if (existingDelivery) return ok(res, { orderId: candidate._id, deliveryId: existingDelivery._id, status: existingDelivery.status }, 'You already accepted this order');
   }
-  if (candidate.deliveryType === 'shiprocket') throw httpError(409, 'Courier orders cannot be accepted by Bulkimart riders');
+  if (COURIER_DELIVERY_TYPES.includes(candidate.deliveryType)) throw httpError(409, 'Courier orders cannot be accepted by Bulkimart riders');
   const { seller: pickupSeller, shop } = await requireOrderPickup(candidate);
   if (!pickupCoordinates(candidate.shippingAddress)) throw httpError(409, 'The customer delivery address needs a valid map pin before acceptance');
   const ineligible = riderIneligibility(partner, req.user, candidate, shop || {}, { requireDuty: false });
@@ -1468,7 +1471,7 @@ export const updateDeliveryStatus = asyncHandler(async (req, res) => {
     throw httpError(400, 'Invalid status update');
   }
 
-  const order = await Order.findById(req.params.id).select('deliveryPartnerId deliveryId userId');
+  const order = await Order.findById(req.params.id).select('deliveryPartnerId deliveryId userId deliveryMethod');
   if (!order || String(order.deliveryPartnerId) !== String(req.partner._id)) {
     throw httpError(404, 'No active delivery assignment found');
   }
@@ -1548,6 +1551,10 @@ export const updateDeliveryStatus = asyncHandler(async (req, res) => {
   if (!applied) {
     const current = await Delivery.findById(delivery._id).select('status');
     throw httpError(409, `This delivery is already ${current?.status || 'resolved'} — it can no longer be updated`);
+  }
+  if (status === 'picked_up' && order.deliveryMethod === 'fbb') {
+    const { recordFbbHandoff } = await import('../services/fbbFulfillment.service.js');
+    recordFbbHandoff(order._id, 'rider_pickup').catch((e) => console.error('[FBB] hand-off after rider pickup failed; an admin can confirm it:', e.message));
   }
 
   // Notify buyer via socket
@@ -1964,7 +1971,7 @@ export const getPendingDeliveryOrders = asyncHandler(async (req, res) => {
    * still comes from riderClaimableStatuses(), which is not touched.
    */
   const pendingOrders = await Order.find({
-    deliveryType: { $ne: 'shiprocket' },
+    deliveryType: { $nin: COURIER_DELIVERY_TYPES },
     $and: [
       { $or: CHANNELS.map((ch) => ({ type: ch, status: { $in: riderClaimableStatuses(ch) } })) },
       { $or: [{ deliveryPartnerId: null }, { deliveryPartnerId: { $exists: false } }] },
@@ -1999,7 +2006,7 @@ export const getPendingDeliveryOrders = asyncHandler(async (req, res) => {
     if (!await orderPaymentReady(order)) continue;
     let sellerId;
     try { sellerId = orderStoreId(order); } catch { continue; }
-    const seller = await Seller.findById(sellerId);
+    const seller = await originSeller(order, await Seller.findById(sellerId));
     if (!seller) continue;
 
     // Every order returned here genuinely is being offered to this rider
@@ -2205,7 +2212,7 @@ export const getActiveDelivery = asyncHandler(async (req, res) => {
   const delivery = order.deliveryId ? await Delivery.findById(order.deliveryId) : null;
   const sellerItem = order.items.find((i) => i.sellerId);
   const seller = sellerItem
-    ? await Seller.findById(sellerItem.sellerId).select('businessName storeDetails')
+    ? await originSeller(order, await Seller.findById(sellerItem.sellerId).select('businessName storeDetails'))
     : null;
   const shop = storePickup(seller) || {};
 

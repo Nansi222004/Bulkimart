@@ -8,6 +8,7 @@ import * as provider from './shiprocket.service.js';
 import { httpError } from '../utils/response.js';
 import { financialTransaction } from './financeSafety.service.js';
 import { notifySeller, NOTIFICATION_EVENT } from './notification.service.js';
+import { originSeller } from './fulfilmentOrigin.service.js';
 
 const ready = ['APPROVED', 'AWAITING_RETURN'];
 const identity = value => value != null && /^[1-9]\d*$/.test(String(value));
@@ -58,7 +59,8 @@ export const bookReturnCourier = async ({ returnId, sellerId }) => {
   if (!ready.includes(ret.status) || !['NOT_ASSIGNED', 'CANCELLED'].includes(ret.pickup?.status)) throw httpError(409, 'Return is not available for courier pickup');
   if (ret.reverseBooking?.state === 'booked') return ret;
   if (ret.pickupMethod === 'MANUAL' || ['creating', 'uncertain', 'cancel_pending'].includes(ret.reverseBooking?.state)) throw httpError(409, 'Existing pickup must be reconciled or cancelled before booking');
-  const seller = await Seller.findById(sellerId), customer = await User.findById(ret.customerId), product = await Product.findById(ret.productId);
+  // An FBB return goes back to the Bulkimart warehouse, not the seller's shop.
+  const seller = await originSeller(order, await Seller.findById(sellerId)), customer = await User.findById(ret.customerId), product = await Product.findById(ret.productId);
   if (!customer || !seller) throw httpError(400, 'Pickup contact is unavailable');
   const payload = buildReversePayload({ ret, order, item, seller, customer, product });
   const environment = await provider.prepareReverseClient();

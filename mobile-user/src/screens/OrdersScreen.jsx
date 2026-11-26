@@ -124,6 +124,7 @@ export default function OrdersScreen() {
           <View style={{ flexDirection: 'row', gap: 6 }}>
             <Text style={[styles.badge, { backgroundColor: '#a855f7' }]}>{order.channel}</Text>
             {order.delivery && <Text style={[styles.badge, { backgroundColor: order.delivery.tone === 'sameday' ? '#dcfce7' : '#e2e8f0', color: order.delivery.tone === 'sameday' ? '#166534' : '#475569' }]}>{order.delivery.icon} {order.delivery.text}</Text>}
+            {order.raw.deliveryMethod === 'fbb' && <Text style={[styles.badge, { backgroundColor: '#e0e7ff', color: '#3730a3' }]}>Fulfilled by Bulkimart</Text>}
           </View>
         </View>
         <View style={{ alignItems: 'flex-end', gap: 6 }}>

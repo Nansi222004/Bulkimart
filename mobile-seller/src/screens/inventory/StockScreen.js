@@ -160,7 +160,9 @@ export default function StockScreen({ route }) {
                 {(item.variants?.length || 0) > 1 ? <Text style={type.small} numberOfLines={2}>{item.variants.map((v) => `${v.name}: ${v.stock}`).join(' · ')}</Text> : null}
                 <View style={styles.bottom}>
                   <Text style={[styles.health, { backgroundColor: bg, color: fg }]}>{label} · {item.stock}</Text>
-                  <AppButton small variant="outline" title="Adjust" onPress={() => setAdjusting(item)} />
+                  {item.deliveryMethod === 'fbb'
+                    ? <Text style={type.small}>Managed by Bulkimart warehouse</Text>
+                    : <AppButton small variant="outline" title="Adjust" onPress={() => setAdjusting(item)} />}
                 </View>
               </View>
             </View>

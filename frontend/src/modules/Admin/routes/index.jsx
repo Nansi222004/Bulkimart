@@ -50,6 +50,7 @@ import CampaignsTab from '../components/CampaignsTab';
 import AdvertisingWorkspace from '../../../components/advertising/AdvertisingWorkspace';
 import ReturnsTab from '../components/ReturnsTab';
 import ShipmentExceptionsTab from '../components/ShipmentExceptionsTab';
+import FbbTab from '../components/FbbTab';
 import ReturnPolicySettingsTab from '../components/ReturnPolicySettingsTab';
 import RadiusSettingsTab from '../components/RadiusSettingsTab';
 import NotificationBroadcasterTab from '../components/NotificationBroadcasterTab';
@@ -59,6 +60,7 @@ import AdminLoginPage from '../pages/AdminLoginPage';
 import WholesaleManagementTab from '../components/WholesaleManagementTab';
 import FinanceCenter from '../components/FinanceCenter';
 import HelplineSettingsTab from '../components/HelplineSettingsTab';
+import TrainingVideosTab from '../components/TrainingVideosTab';
 import { revokeServerSession } from '../../../utils/serverLogout';
 
 import '../SuperAdmin.css';
@@ -119,9 +121,11 @@ const AdminRoutesContent = ({ onLogout }) => {
       case 'campaigns':          return <CampaignsTab />;
       case 'returns':            return <ReturnsTab />;
       case 'shipment-exceptions': return <ShipmentExceptionsTab />;
+      case 'fbb':                return <PageErrorBoundary name="admin-fbb"><FbbTab /></PageErrorBoundary>;
       case 'return-policies':    return <ReturnPolicySettingsTab />;
       case 'radius-settings':    return <RadiusSettingsTab />;
       case 'helpline-settings':  return <HelplineSettingsTab />;
+      case 'training-videos':    return <TrainingVideosTab />;
       case 'notifications':      return <NotificationBroadcasterTab />;
       case 'privacy-policy':
       case 'privacy':            return <PrivacyPolicyTab />;

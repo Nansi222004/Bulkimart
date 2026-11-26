@@ -44,3 +44,11 @@ export function uploadStoreBranding({ logo, banner }, onProgress) {
 // active orders, unresolved returns or pending payouts exist, and deactivates instead of deleting when
 // history must be kept.
 export const deleteSellerAccount = () => api.delete('/api/sellers/account');
+
+// Self Delivery area (backend/controllers/seller.controller.js::getSelfDeliveryArea / updateSelfDeliveryArea).
+// GET → data { pincodes[], states[], configured, stateOptions[] }; PUT { states[], pincodes } → same shape.
+export const getSelfDeliveryArea = () => api.get('/api/sellers/self-delivery-area').then((body) => body?.data || null);
+export const saveSelfDeliveryArea = (area) => api.put('/api/sellers/self-delivery-area', area).then((body) => {
+  if (!body?.data) throw new Error(body?.message || 'Could not save the delivery area');
+  return body.data;
+});

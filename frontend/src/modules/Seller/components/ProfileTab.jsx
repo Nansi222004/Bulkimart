@@ -4,6 +4,7 @@ import { useSeller } from '../context/SellerContext';
 import { apiUrl } from '../../../utils/api';
 import { boundedFetch } from '../../../utils/portalRequests';
 import PickupSyncCard from './PickupSyncCard';
+import SelfDeliveryAreaCard from './SelfDeliveryAreaCard';
 import { useFeedback } from '../../../components/feedback/FeedbackProvider';
 
 /** Readable text for a reverse-geocode result: building name (if any) + postal address. */
@@ -127,7 +128,7 @@ export const ProfileTab = () => {
         {[['Seller identity',account.name || s.businessName],['Store name',store.name],['Contact number',account.phone],['Alternate phone',store.phone],['Account email',account.email],['Store email',store.email],['Business email',s.email],['Store description',store.description]].map(([label,value])=><div key={label}><dt>{label}</dt><dd>{shown(value)}</dd></div>)}
       </dl></section>
       <section className="seller-profile-card"><div className="seller-profile-actions"><h2>Store Address & Location Pin</h2><button disabled={pinning||profileLoading} onClick={pin}>{pinning?'Pinning…':'Update Location'}</button></div><dl className="seller-profile-fields">{[['Address',store.address],['City / district',store.city],['State',store.state],['Pincode',store.pincode],['Pinned location',Number.isFinite(store.lat)&&Number.isFinite(store.lng)?(pinned.loading?'Finding address…':pinned.text || [store.address,store.city,store.state,store.pincode].filter(Boolean).join(', ') || 'Pinned on the map'):'Not pinned yet']].map(([label,value])=><div key={label}><dt>{label}</dt><dd>{shown(value)}</dd></div>)}</dl></section>
-    </div><aside><section className="seller-profile-card seller-profile-trust"><h2>Security & Trust</h2><dl>{[['Verification',statuses[s.status]],['Partner tier',s.partnerTier],['Region',[store.city,store.state].filter(Boolean).join(', ')],['Seller status',s.status]].map(([label,value])=><div key={label}><dt>{label}</dt><dd>{value || 'Unavailable'}</dd></div>)}</dl><p>Account identity and approval cannot be changed through store profile editing.</p></section><PickupSyncCard seller={s} refreshSeller={fetchSellerProfile}/></aside></div>
+    </div><aside><section className="seller-profile-card seller-profile-trust"><h2>Security & Trust</h2><dl>{[['Verification',statuses[s.status]],['Partner tier',s.partnerTier],['Region',[store.city,store.state].filter(Boolean).join(', ')],['Seller status',s.status]].map(([label,value])=><div key={label}><dt>{label}</dt><dd>{value || 'Unavailable'}</dd></div>)}</dl><p>Account identity and approval cannot be changed through store profile editing.</p></section><PickupSyncCard seller={s} refreshSeller={fetchSellerProfile}/><SelfDeliveryAreaCard/></aside></div>
     <DeleteAccountCard />
     {editing&&<SellerProfileEditor key={String(id)} seller={s} onClose={()=>setEditing(false)}/>}
   </div>;

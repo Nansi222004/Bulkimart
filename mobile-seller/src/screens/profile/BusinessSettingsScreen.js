@@ -8,6 +8,7 @@ import AppButton from '../../components/AppButton';
 import SwitchRow from '../../components/SwitchRow';
 import UploadProgress from '../../components/UploadProgress';
 import { InlineNotice } from '../../components/StateViews';
+import SelfDeliveryAreaCard from '../../components/SelfDeliveryAreaCard';
 import { useAuth } from '../../context/AuthContext';
 import { requestWholesaleAccess, saveShopSameDay, updateSalesChannels, uploadStoreBranding } from '../../services/settings.api';
 import { MediaError, pickPhotos } from '../../utils/media';
@@ -117,6 +118,8 @@ export default function BusinessSettingsScreen() {
         <AppButton title="Save same-day settings" loading={busy === 'sameDay'} disabled={!!busy} onPress={saveSameDay} />
         <Text style={type.small}>Individual products also need same-day switched on (Edit product, Shop All).</Text>
       </Card>
+
+      <SelfDeliveryAreaCard />
 
       <Card title="Store branding">
         <View style={styles.brandRow}>

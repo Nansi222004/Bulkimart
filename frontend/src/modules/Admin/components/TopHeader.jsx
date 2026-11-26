@@ -18,6 +18,7 @@ const pageTitles = {
   'categories-all': 'All Categories', 'categories-header': 'Header Categories',
   'categories-main': 'Main Categories', 'categories-sub': 'Sub-Categories', 'categories-fields': 'Category Fields',
   'helpline-settings': 'Helpline & SOS Emergency Settings',
+  'training-videos': 'Training & Coaching Videos',
   'cod-charges': 'Payment Settings · COD Charges',
 };
 
@@ -47,6 +48,7 @@ const resolveSearchTab = (query) => {
   if (/payout|payment|financ|wallet/.test(q)) return 'finance-center';
   if (/coupon|promo|campaign/.test(q)) return 'campaigns';
   if (/helpline|sos|emergency/.test(q)) return 'helpline-settings';
+  if (/training|coaching|tutorial/.test(q)) return 'training-videos';
   if (/notification|broadcast/.test(q)) return 'notifications';
   if (/rto|shipment exception|lost parcel|damaged parcel/.test(q)) return 'shipment-exceptions';
   if (/return|refund/.test(q)) return 'returns';

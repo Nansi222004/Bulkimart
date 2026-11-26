@@ -4,6 +4,8 @@ export const MENU_SECTIONS = [
     title: 'Selling',
     items: [
       { title: 'Stock', route: 'Stock', icon: 'layers', hint: 'Stock levels and adjustments' },
+      // Shown only once FBB is open, or the seller already has FBB stock or charges (SideMenu checks).
+      { title: 'FBB warehouse', route: 'Fbb', icon: 'layers', hint: 'Warehouse stock, receipts and charges', requiresFbb: true },
       { title: 'Bulk upload', route: 'BulkUpload', icon: 'file', hint: 'List many products from an Excel sheet' },
       { title: 'Track orders', route: 'TrackOrders', icon: 'truck', hint: 'Partners, couriers and status trails' },
       { title: 'Returns', route: 'Returns', icon: 'returns', hint: 'Review returns and arrange pickups' },
@@ -29,6 +31,7 @@ export const MENU_SECTIONS = [
       { title: 'Pickup registration', route: 'PickupSync', icon: 'truck', hint: 'Shiprocket pickup location' },
       { title: 'KYC & payout details', route: 'KycDetails', icon: 'shield', hint: 'Bank, GST, PAN and documents' },
       { title: 'Notifications', route: 'Notifications', icon: 'bell', hint: 'Order, return and payout updates' },
+      { title: 'Training videos', route: 'Training', icon: 'play', hint: 'Learn how to use the seller app' },
       { title: 'Support', route: 'Support', icon: 'headset', hint: 'Help line and support tickets' },
       { title: 'Privacy policy', route: 'PrivacyPolicy', icon: 'file', hint: 'How Bulkimart uses seller data' },
     ],

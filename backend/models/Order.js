@@ -1,6 +1,6 @@
 import mongoose from "mongoose";
 import { validateProductTaxSnapshot } from "../services/productGst.service.js";
-import { ORDER_TYPES, DELIVERY_TYPES, DELIVERY_MODES, PAYMENT_METHODS, OFFER_ATTEMPT_STATUSES, COIN_REWARD_STATUSES } from "../constants/enums.js";
+import { ORDER_TYPES, DELIVERY_TYPES, DELIVERY_MODES, DELIVERY_METHODS, FULFILLMENT_OWNERS, PAYMENT_METHODS, OFFER_ATTEMPT_STATUSES, COIN_REWARD_STATUSES } from "../constants/enums.js";
 
 const { Schema, model } = mongoose;
 const ObjectId = Schema.Types.ObjectId;
@@ -103,6 +103,10 @@ const orderItemSchema = new Schema({
   shgStoreId: { type: ObjectId, ref: "SHGStore" },
   type:       String,
   fulfillmentType: { type: String, enum: ['physical', 'digital'], default: 'physical' },
+  // The product's delivery method when this line was bought (services/deliveryMethod.service.js).
+  // Frozen: a later change to the product never changes how this line is fulfilled. Absent on
+  // Quick, digital and pre-feature lines (an e-commerce one reads as Easy Ship).
+  deliveryMethod: { type: String, enum: DELIVERY_METHODS, immutable: true },
   // An e-book line that took one of the seller's limited copies at checkout;
   // only these give a copy back on cancellation.
   stockReserved: { type: Boolean },
@@ -412,6 +416,60 @@ const orderSchema = new Schema(
      */
     deliveryType: { type: String, enum: DELIVERY_TYPES },
 
+    /**
+     * The product delivery method this order was placed under (Easy Ship / Self Delivery / FBB)
+     * and who runs its fulfilment. Frozen at placement: checkout groups lines by method, so an
+     * order has exactly one. Absent on Quick orders and on everything placed before delivery
+     * methods existed — services/deliveryMethod.service.js::orderDeliveryMethod reads those.
+     */
+    deliveryMethod: { type: String, enum: DELIVERY_METHODS, immutable: true },
+    fulfillmentOwner: { type: String, enum: FULFILLMENT_OWNERS, immutable: true },
+    /**
+     * Where the parcel leaves from: the seller's shop, or an FBB warehouse. Frozen at placement (the warehouse
+     * whose stock was reserved). services/fulfilmentOrigin.service.js is the one reader for pickup, tracking
+     * and return destinations. Absent = the seller's shop, as for every order before FBB.
+     */
+    origin: {
+      type: new Schema({ kind: { type: String, enum: ['seller', 'warehouse'], required: true }, warehouseId: { type: ObjectId, ref: 'Warehouse' } }, { _id: false }),
+      default: undefined, immutable: true,
+    },
+    /**
+     * FBB warehouse fulfilment (admin only; the seller sees, never acts). chargeTerms freezes the packaging
+     * and fulfilment rates at placement when FBB charging was on; handedOverAt is set once, when the parcel
+     * leaves the warehouse with a provider (stock leaves reserved, the fulfilment charge accrues).
+     */
+    fbb: {
+      type: new Schema({
+        status: { type: String, enum: ['awaiting_acceptance', 'accepted', 'picking', 'packed', 'handed_over'] },
+        acceptedAt: Date, acceptedBy: { type: ObjectId, ref: 'Admin' },
+        pickingAt: Date, packedAt: Date, packedBy: { type: ObjectId, ref: 'Admin' },
+        handedOverAt: Date, handoffSource: String,
+        // A parcel that came back to the warehouse undelivered (RTO): its units wait in quarantine until an
+        // admin inspects them once (pending → done) and splits each line into sellable and damaged.
+        returnInspection: {
+          type: new Schema({
+            status: { type: String, enum: ['pending', 'done'], required: true },
+            arrivedAt: Date,
+            lines: [new Schema({
+              productId: { type: ObjectId, ref: 'Product' }, variantId: ObjectId, sellerId: { type: ObjectId, ref: 'Seller' },
+              qty: Number, sellableQty: Number, damagedQty: Number,
+            }, { _id: false })],
+            inspectedAt: Date, inspectedBy: { type: ObjectId, ref: 'Admin' }, note: String,
+          }, { _id: false }),
+          default: undefined,
+        },
+        chargeTerms: {
+          type: new Schema({
+            configVersion: Number,
+            packaging: { amountPaise: Number, basis: String },
+            fulfillment: { amountPaise: Number, basis: String },
+          }, { _id: false }),
+          default: undefined,
+        },
+      }, { _id: false }),
+      default: undefined,
+    },
+
     // What was promised and charged at placement. Absent on Quick orders.
     delivery: { type: orderDeliverySchema, default: undefined },
 
@@ -487,8 +545,8 @@ const orderSchema = new Schema(
       // repeated broadcasts for the same request do not ring them again.
       requestedRiderNotifiedAt: Date,
       readyAt: Date,
-      assignmentPolicy: { type: String, enum: ['seller_after_acceptance'] },
-      method: { type: String, enum: ["manual", "shiprocket", "third_party"] },
+      assignmentPolicy: { type: String, enum: ['seller_after_acceptance', 'warehouse_after_acceptance'] },
+      method: { type: String, enum: ["manual", "shiprocket", "third_party", "external_courier"] },
       selectedBy: { type: String, enum: ["seller", "admin", "system"] },
       selectedAt: Date,
       quote: {
@@ -507,6 +565,47 @@ const orderSchema = new Schema(
       chargeStatus: { type: String, enum: ["not_applicable", "pending", "blocked", "collected", "refunded"] },
       failureReason: String,
       financialSnapshotId: { type: ObjectId, ref: "QuickCommerceFinancialSnapshot" },
+    },
+
+    /**
+     * A Self Delivery parcel the seller handed to a courier they arranged and pay for themselves
+     * (deliveryType 'external'). Kept apart from `shiprocket`, which only ever holds Bulkimart's own
+     * Shiprocket bookings. The seller reports each step; `events` is the audit trail of those reports.
+     * Absent on every other order.
+     */
+    externalShipment: {
+      type: new Schema({
+        courierName: { type: String, required: true },
+        awb: { type: String, required: true },
+        trackingUrl: { type: String, required: true },
+        dispatchedAt: { type: Date, required: true },
+        deliveredAt: Date,
+        status: { type: String, enum: ['dispatched', 'out_for_delivery', 'delivered', 'delivery_failed'], required: true },
+        enteredBy: { type: ObjectId, ref: 'Seller' },
+        events: [{ _id: false, status: String, at: Date, by: { type: String, enum: ['seller', 'admin', 'customer'] }, note: String }],
+        /**
+         * Who the customer's delivery charge is credited to when earnings post: the seller (who paid the
+         * courier) or the platform. Fixed once, at hand-off, from SELF_DELIVERY_FEE_CREDIT_ENABLED, so later
+         * changes to that switch never re-route a fee already promised (orderFinance.service.js).
+         */
+        deliveryFeePayee: { type: String, enum: ['seller', 'platform'] },
+        // Tracking corrections after hand-off: what was replaced, by whom and why. The current values are above.
+        corrections: [{ _id: false, at: Date, by: { type: String, enum: ['seller', 'admin'] }, reason: String,
+          previous: { courierName: String, awb: String, trackingUrl: String, dispatchedAt: Date } }],
+        // The latest failed delivery attempt reported by the seller or an admin.
+        failure: { reason: String, at: Date, by: { type: String, enum: ['seller', 'admin'] } },
+        /**
+         * The customer says a seller-reported delivery never arrived. While open, seller earnings for the
+         * order are not posted; an admin resolves it (confirm delivered, or cancel and refund).
+         */
+        dispute: {
+          status: { type: String, enum: ['open', 'resolved'] },
+          reason: String, openedAt: Date,
+          resolution: { type: String, enum: ['confirmed_delivered', 'cancelled_refunded'] },
+          resolvedAt: Date, resolvedBy: { type: ObjectId, ref: 'Admin' }, note: String,
+        },
+      }, { _id: false }),
+      default: undefined,
     },
 
     // Internal delivery (QCommerce + SHG)
@@ -584,6 +683,8 @@ const orderSchema = new Schema(
 
 orderSchema.index({ userId: 1, createdAt: -1 });
 orderSchema.index({ status: 1 });
+// Duplicate external tracking-number check (Self Delivery courier hand-off). Sparse: only those orders carry it.
+orderSchema.index({ 'externalShipment.awb': 1 }, { sparse: true });
 // The Coins reward sweeper's own query shape (Phase 7) — only ever scans
 // items still PENDING/ELIGIBLE whose eligible-at has passed, never every
 // historical order.

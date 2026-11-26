@@ -85,9 +85,38 @@ export const resolveInventoryItem = (product, variantId, { allowLegacyPrimary = 
 /** Atomic stock mutation. Must be called within the caller's transaction.
  * Root stock is a sum projection for variant products and is never decremented
  * independently. For legacy no-variant documents root stock is canonical. */
-export const mutateInventory = async ({ productId, variantId = null, quantity, session, restore = false, note, actorType = 'system', actorId }) => {
+export const mutateInventory = async ({ productId, variantId = null, quantity, session, restore = false, note, actorType = 'system', actorId,
+  deliveryMethod, warehouseId, fbbHandedOver = false, reference, fbbExcludeWarehouseIds }) => {
   const delta = restore ? Number(quantity) : -Number(quantity);
   if (!Number.isInteger(Math.abs(delta)) || delta === 0) throw httpError(400, 'Invalid inventory quantity');
+
+  /**
+   * FBB lines (by the order line's frozen method, never the product's current one) move warehouse stock:
+   * a sale reserves it, a cancellation before hand-off releases it, and a unit that already left the
+   * warehouse comes back only as an inspected return (services/warehouse.service.js).
+   */
+  if (deliveryMethod === 'fbb') {
+    const { warehouseStockOp } = await import('./warehouse.service.js');
+    const op = !restore ? 'reserve' : fbbHandedOver ? 'return_restock' : 'release';
+    if (!variantId) throw httpError(409, 'This FBB line has no variant; reconciliation is required');
+    let sellerId;
+    if (op === 'return_restock') sellerId = (await Product.findById(productId).select('sellerId').session(session || null).lean())?.sellerId;
+    return warehouseStockOp({ op, productId, variantId, qty: Number(quantity), warehouseId, sellerId, session, actorType, actorId, note, excludeWarehouseIds: fbbExcludeWarehouseIds,
+      reference: reference || {} });
+  }
+
+  /**
+   * A seller-fulfilled line whose product has since moved to FBB: its units belong to the seller's shop,
+   * not the warehouse, so a restore never inflates the warehouse mirror (it is recorded as seller-held) and
+   * a new sale cannot draw on the mirror (the filters below exclude FBB products).
+   */
+  if (restore) {
+    const current = await Product.findById(productId).session(session || null).select('deliveryMethod sellerId').lean();
+    if (current?.deliveryMethod === 'fbb') {
+      await recordStockMovements([{ productId, variantId, delta, reason: 'restock', note: 'Returned to seller-held stock (product is now FBB; warehouse stock unchanged)', actorType, actorId }], session);
+      return {};
+    }
+  }
   // A legacy variant-less order can only be resolved by reading the current
   // product; its pre-variant deduction used the primary variant projection.
   if (!variantId && restore) {
@@ -98,7 +127,7 @@ export const mutateInventory = async ({ productId, variantId = null, quantity, s
 
   if (!variantId) {
     const filter = { _id: productId, $or: [{ variants: { $exists: false } }, { variants: { $size: 0 } }] };
-    if (!restore) filter.stock = { $gte: quantity };
+    if (!restore) { filter.stock = { $gte: quantity }; filter.deliveryMethod = { $ne: 'fbb' }; }
     const result = await Product.updateOne(filter, { $inc: { stock: delta, __v: 1 } }, { session });
     if (result.modifiedCount !== 1) throw httpError(409, 'There is not enough stock available');
     await recordStockMovements([{ productId, delta, reason: restore ? 'restock' : 'sale', note, actorType, actorId }], session);
@@ -106,7 +135,8 @@ export const mutateInventory = async ({ productId, variantId = null, quantity, s
   }
 
   if (!variantId || !mongoose.isValidObjectId(variantId)) throw httpError(409, 'The selected product variant is unavailable');
-  const filter = { _id: productId, variants: { $elemMatch: { _id: variantId, ...(restore ? {} : { stock: { $gte: quantity } }) } } };
+  // Never sell an FBB product's mirrored stock as if it were the seller's own (see the FBB branch above).
+  const filter = { _id: productId, ...(restore ? {} : { deliveryMethod: { $ne: 'fbb' } }), variants: { $elemMatch: { _id: variantId, ...(restore ? {} : { stock: { $gte: quantity } }) } } };
   const result = await Product.updateOne(filter, { $inc: { 'variants.$.stock': delta, __v: 1 } }, { session });
   if (result.modifiedCount !== 1) throw httpError(409, 'The selected variant does not have enough stock');
 
@@ -118,6 +148,7 @@ export const mutateInventory = async ({ productId, variantId = null, quantity, s
     { session, updatePipeline: true }
   );
   await recordStockMovements([{ productId, variantId, delta, reason: restore ? 'restock' : 'sale', note, actorType, actorId }], session);
+  return {};
 };
 
 /**

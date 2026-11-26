@@ -375,10 +375,22 @@ export const transitionReturnStatus = async ({ returnId, toStatus, adminId, comm
         // NOT wait for the refund to be processed (Phase 6Q). Idempotent via
         // `restockStatus`: a duplicate/retried request can never restock twice.
         if (ret.restockStatus === RESTOCK_STATUS.NOT_PROCESSED) {
+          // Restocked by the line's frozen delivery method: an FBB unit goes back to the warehouse it left
+          // (resellable → on sale, otherwise held as damaged); a seller-fulfilled unit to the seller as before.
+          const sourceOrder = await Order.findById(ret.orderId).select('items._id items.deliveryMethod items.sellerId origin').session(session).lean();
+          const line = sourceOrder?.items?.find((row) => String(row._id) === String(ret.orderItemId));
+          const fbbLine = line?.deliveryMethod === 'fbb';
+          const reference = { referenceType: 'return', referenceId: ret._id };
           if (ret.restockDecision === RESTOCK_DECISION.RESTOCKABLE) {
-            await mutateInventory({ productId: ret.productId, variantId: ret.variantId, quantity: ret.quantity, session, restore: true });
+            await mutateInventory({ productId: ret.productId, variantId: ret.variantId, quantity: ret.quantity, session, restore: true,
+              deliveryMethod: line?.deliveryMethod, warehouseId: sourceOrder?.origin?.warehouseId, fbbHandedOver: true, reference, actorType: 'admin', actorId: adminId });
             ret.restockStatus = RESTOCK_STATUS.RESTOCKED;
           } else if (ret.restockDecision === RESTOCK_DECISION.NON_RESTOCKABLE) {
+            if (fbbLine) {
+              const { warehouseStockOp } = await import('./warehouse.service.js');
+              await warehouseStockOp({ op: 'return_damaged', productId: ret.productId, variantId: ret.variantId, qty: ret.quantity, warehouseId: sourceOrder.origin?.warehouseId,
+                sellerId: line.sellerId, session, actorId: adminId, reference, note: `Return ${ret.returnNumber}: not resellable` });
+            }
             ret.restockStatus = RESTOCK_STATUS.NOT_RESTOCKED;
           }
         }

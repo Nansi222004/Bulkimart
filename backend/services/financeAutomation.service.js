@@ -7,8 +7,10 @@ import SellerLedgerEntry from '../models/SellerLedgerEntry.js';
 import { financeFlags } from './financeSafety.service.js';
 import { getFinancePolicy } from './financePolicy.service.js';
 import { postOrderFinance, releaseOrderFinance, releaseDeliveryEarning, reverseRefundedReturn } from './orderFinance.service.js';
+import { externalHoldClearedFilter } from './externalCourier.service.js';
 import { createSellerPayoutRequest } from './sellerPayout.service.js';
 import { requestVerifiedRiderPayout } from './deliveryPayout.service.js';
+import { settleFbbObligations, sellersWithFbbObligations } from './fbbCharges.service.js';
 
 /**
  * Moves money through the normal path without an admin clicking each order:
@@ -67,6 +69,10 @@ const createWeeklyPayouts = async (policy, now, summary) => {
     { $group: { _id: `$${field}`, paise: { $sum: { $cond: [{ $eq: ['$direction', 'credit'] }, paise, { $multiply: [paise, -1] }] } } } },
     { $match: { paise: { $gt: 0 } } },
   ]);
+  // Deduct outstanding FBB service charges from eligible earnings before sizing the payouts.
+  for (const { sellerId } of await sellersWithFbbObligations()) {
+    try { await settleFbbObligations({ sellerId }); } catch (error) { summary.fbbSettlementFailed = (summary.fbbSettlementFailed || 0) + 1; console.error('[FBB] settlement before payout failed:', error.message); }
+  }
   for (const row of await balance('seller_payable', 'sellerId')) {
     const amount = row.paise / 100;
     if (amount < policy.sellerMinPayout) continue;
@@ -88,7 +94,7 @@ export const runFinanceAutomationOnce = async ({ now = Date.now() } = {}) => {
   if (!operationsEnabled(flags)) return { skipped: 'operations disabled' };
   const snapshot = { 'financialSnapshot.version': 2 };
 
-  const toPost = await Order.find({ ...snapshot, 'financialSnapshot.state': 'configured', status: 'delivered', financialPosting: { $exists: false }, $and: [cashSettled, due(now)] }).select('_id').limit(BATCH).lean();
+  const toPost = await Order.find({ ...snapshot, 'financialSnapshot.state': 'configured', status: 'delivered', financialPosting: { $exists: false }, $and: [cashSettled, due(now), externalHoldClearedFilter(now)] }).select('_id').limit(BATCH).lean();
   for (const { _id } of toPost) await attempt(_id, 'post', () => postOrderFinance(_id, null), summary);
 
   // Refunds before release, so an order with a completed return can release

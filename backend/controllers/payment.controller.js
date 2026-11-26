@@ -54,6 +54,8 @@ export const settle = async ({ payment, state, gatewayOrderId, paymentDetails, e
   if (payment.gstAssistanceRequestId) { const { settleGstPayment } = await import('../services/gstPayment.service.js'); return { status: await settleGstPayment(payment._id, { state, orderId: gatewayOrderId, paymentId: gatewayPaymentId, amountPaise, currency }) }; }
   if(payment.advertising)throw httpError(409,'Advertising requires its dedicated settlement handler');
   if (payment.quickFeeSnapshotId) return settleQuickShiprocketCollection({ payment, state, gatewayOrderId, gatewayPaymentId, amountPaise, currency });
+  // Seller's advance payment of FBB service charges (never a customer order payment).
+  if (payment.fbbObligationSellerId) { const { settleFbbObligationPayment } = await import('../services/fbbCharges.service.js'); return settleFbbObligationPayment({ payment, state, gatewayOrderId, gatewayPaymentId, amountPaise, currency }); }
   // Exact Razorpay capture replay is a no-op; distinct successes still need
   // financial reconciliation after settlement/failure. Other provider signals
   // retain their pending-only transition and one-time Coins effects.

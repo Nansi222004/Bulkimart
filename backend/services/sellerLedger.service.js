@@ -90,6 +90,7 @@ export const sellerBalances = async (sellerId, { session = null } = {}) => {
     // Prepaid Shiprocket charges: what was charged, what the seller paid, what is still owed.
     courierObligations: { charged: chargedPaise / 100, paid: paidPaise / 100, outstanding: Math.max(0, chargedPaise - paidPaise) / 100 },
     adjustments: (byType.adjustment?.credits || 0) - (byType.adjustment?.debits || 0),
+    fbbChargesDeducted: byType.fbb_fee_settlement?.debits || 0,
     reversals: byType.reversal?.debits || 0,
     ledgerEntryCount,
   };

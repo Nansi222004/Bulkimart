@@ -9,7 +9,9 @@ import { uploadToCloudinary } from '../services/cloudinary.service.js';
 import { mediaContext } from '../services/media.service.js';
 import { recordStockMovements } from '../services/inventory.service.js';
 import { resolveCategoryFields, categoryRequiresApproval } from '../services/catalogAttribute.service.js';
-import { APPROVAL } from '../constants/enums.js';
+import { APPROVAL, DELIVERY_METHOD } from '../constants/enums.js';
+import { deliveryMethodsEnabled, parseDeliveryMethodText, resolveDeliveryMethodInput } from '../services/deliveryMethod.service.js';
+import { selfDeliveryAreaConfigured } from '../services/selfDeliveryArea.service.js';
 import { JWT_SECRET, JWT_ALGORITHM } from '../config/jwt.js';
 import jwt from 'jsonwebtoken';
 import JSZip from 'jszip';
@@ -98,7 +100,8 @@ async function sendTemplate(res, rawMode) {
   });
 
   const fieldColumns = await templateFieldColumns(categories);
-  const excelBuffer = await generateBulkTemplateExcelJS(categoriesTree, mode, categoryHierarchy, fieldColumns);
+  // Shop All templates gain a Delivery Method column once the feature is switched on.
+  const excelBuffer = await generateBulkTemplateExcelJS(categoriesTree, mode, categoryHierarchy, fieldColumns, { deliveryMethodColumn: !isQuick && deliveryMethodsEnabled() });
   const filename = isQuick ? 'Bulkimart_Quick_Commerce_Bulk_Product_Template.xlsx' : 'Bulkimart_Ecommerce_Bulk_Product_Template.xlsx';
 
   res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
@@ -188,6 +191,19 @@ export const processBulkUpload = asyncHandler(async (req, res) => {
     return fieldCache.get(key);
   };
   const { products, errors } = await validateBulkRows(rows, categories, imageMap, { getFields });
+  // Delivery Method column: the same rules as the Add Product form (services/deliveryMethod.service.js).
+  for (const product of products) {
+    try {
+      product.deliveryMethod = resolveDeliveryMethodInput(parseDeliveryMethodText(product.deliveryMethodText), { type, fulfillmentType: 'physical' }, { isNew: true });
+      if (product.deliveryMethod === DELIVERY_METHOD.EASY_SHIP) product.deliveryMethod = undefined;
+      if (product.deliveryMethod === DELIVERY_METHOD.FBB) throw httpError(400, 'Fulfilled by Bulkimart listings are created one at a time (the charges must be accepted)');
+      if (product.deliveryMethod === DELIVERY_METHOD.SELF_DELIVERY && !selfDeliveryAreaConfigured(seller)) {
+        throw httpError(409, 'Add the pincodes or states you deliver to (Store profile → Self Delivery area) before choosing Self Delivery');
+      }
+    } catch (error) {
+      errors.push({ row: product.row, rows: product.rows, name: product.data.name, reason: `Delivery Method: ${error.message}` });
+    }
+  }
   if (errors.length) throw httpError(400, 'Product sheet validation failed. Fix the listed rows and upload again. No products were imported.', { errors });
   if (!products.length) throw httpError(400, 'The sheet contains only examples or comments. Add your product rows.');
 
@@ -222,6 +238,7 @@ export const processBulkUpload = asyncHandler(async (req, res) => {
       const needsApproval = await categoryRequiresApproval(product.data.category, product.data.subCategory);
       const row = await Product.create({
         ...product.data, variants, type, sellerId, ...(sellerName ? { sellerName } : {}), images,
+        ...(product.deliveryMethod ? { deliveryMethod: product.deliveryMethod } : {}),
         status: needsApproval ? APPROVAL.PENDING : APPROVAL.APPROVED,
         isActive: !needsApproval,
       });

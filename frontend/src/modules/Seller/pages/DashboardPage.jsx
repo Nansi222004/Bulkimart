@@ -20,6 +20,7 @@ import SalesReportTab from '../components/SalesReportTab';
 import MoneyRequestTab from '../components/MoneyRequestTab';
 import PaymentHistoryTab from '../components/PaymentHistoryTab';
 import EarningsTab from '../components/EarningsTab';
+import FbbTab from '../components/FbbTab';
 import SupportTab from '../components/SupportTab';
 import PrivacyPolicyView from '../../../components/PrivacyPolicyView';
 import FaqsTab from '../components/FaqsTab';
@@ -124,6 +125,7 @@ export const DashboardPage = () => {
       case 'moneyrequest':  return <MoneyRequestTab />;
       case 'paymenthistory':return <PaymentHistoryTab />;
       case 'earnings':      return <EarningsTab />;
+      case 'fbb':           return <PageErrorBoundary name="seller-fbb"><FbbTab /></PageErrorBoundary>;
       case 'item-returns':  return <SellerReturnsTab onDetailChange={setReturnDetailId} />;
       case 'faqs':          return <FaqsTab />;
       case 'campaigns':     return <PageErrorBoundary name="seller-campaigns"><CampaignOffersTab /></PageErrorBoundary>;

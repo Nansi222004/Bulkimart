@@ -15,7 +15,14 @@ import UploadProgress from '../../components/UploadProgress';
 import { InlineNotice } from '../../components/StateViews';
 import { useAuth } from '../../context/AuthContext';
 import { CHANNEL_LABEL } from '../../hooks/useSellerChannel';
-import { createProduct, getCategoryFields, getCategoryReturnPolicy, getCategoryTree, updateProduct } from '../../services/product.api';
+import { createProduct, getCategoryFields, getCategoryReturnPolicy, getCategoryTree, getDeliveryMethodOptions, updateProduct } from '../../services/product.api';
+import { convertToFbb, describeFbbRates, getFbbChargePreview } from '../../services/fbb.api';
+
+const DELIVERY_HINTS = {
+  easy_ship: 'You pack the order; Shiprocket picks it up and delivers it.',
+  self_delivery: 'You pack and deliver it yourself — with a Bulkimart rider or your own courier. Online payment only (no Cash on Delivery).',
+  fbb: 'Bulkimart stores, packs and delivers from its warehouse. Paid service; cannot be changed back.',
+};
 import {
   GST_RATES, applyFieldDefaults, defaultEasyReturnsPolicy, MAX_PRODUCT_IMAGES, UNITS, blankVariant, buildCreateFormData, buildUpdateFormData,
   effectiveCategory, emptyForm, formFromProduct, picksForCategory, validateCategoryFields, validateProductForm,
@@ -41,6 +48,34 @@ export default function ProductFormScreen({ route, navigation }) {
   const [showEasyPolicy, setShowEasyPolicy] = useState(false);
   const [progress, setProgress] = useState(null);
   const [saveError, setSaveError] = useState('');
+  // Delivery methods on offer (server-controlled); null = feature off or unreachable → not shown.
+  const [deliveryOptions, setDeliveryOptions] = useState(null);
+  useEffect(() => {
+    let live = true;
+    if (channel === 'ecommerce') getDeliveryMethodOptions().then((data) => { if (live) setDeliveryOptions(data); });
+    return () => { live = false; };
+  }, [channel]);
+  const chooseFbb = async () => {
+    let preview;
+    try { preview = await getFbbChargePreview(); } catch (e) { Alert.alert('Fulfilled by Bulkimart', e.message || 'Could not load the FBB charges'); return; }
+    if (preview?.readiness && !preview.readiness.ready) { Alert.alert('Fulfilled by Bulkimart is not ready yet', (preview.readiness.blockers || []).join('\n')); return; }
+    const version = preview?.current?.version ?? null;
+    const warning = isEditing
+      ? 'This is permanent: the product cannot go back to Easy Ship or Self Delivery. Its stock becomes 0 here and is set only by what the Bulkimart warehouse receives and verifies. You cannot convert while it has open orders you are delivering.'
+      : 'This is permanent: the product cannot go back to Easy Ship or Self Delivery. Its stock is set only by what the Bulkimart warehouse receives and verifies.';
+    Alert.alert('Fulfilled by Bulkimart — charges', `${describeFbbRates(preview)}\n\n${warning}`, [
+      { text: 'Cancel', style: 'cancel' },
+      { text: isEditing ? 'Accept & convert' : 'Accept', style: 'destructive', onPress: async () => {
+        if (!isEditing) { touch(); setForm((f) => ({ ...f, deliveryMethod: 'fbb', fbbChargeVersion: version })); return; }
+        try {
+          await convertToFbb(product._id, version);
+          savedRef.current = true;
+          Alert.alert('Converted', 'This product is now Fulfilled by Bulkimart. Send stock to the warehouse; it goes on sale once received and verified.');
+          navigation.goBack();
+        } catch (e) { Alert.alert('Conversion did not go through', e.message || 'Try again.'); }
+      } },
+    ]);
+  };
   const savingRef = useRef(false);
   // Unsaved-changes guard: set by the seller's own edits (not by loading or pre-filled defaults); cleared on save.
   const dirtyRef = useRef(false);
@@ -239,6 +274,22 @@ export default function ProductFormScreen({ route, navigation }) {
             );
           })}
         </View>
+
+        {channel === 'ecommerce' && deliveryOptions?.enabled ? (
+          <View style={styles.box}>
+            <OptionPicker label="🚚 Delivery method" disabled={saving} value={form.deliveryMethod || 'easy_ship'}
+              options={deliveryOptions.options
+                .filter((o) => o.available || o.value === (form.deliveryMethod || 'easy_ship'))
+                .filter((o) => form.savedDeliveryMethod !== 'fbb' || o.value === 'fbb')
+                .map((o) => ({ value: o.value, label: o.label }))}
+              onChange={(v) => (v === 'fbb' && form.savedDeliveryMethod !== 'fbb' ? chooseFbb() : set('deliveryMethod', v))} />
+            <Text style={type.small}>{DELIVERY_HINTS[form.deliveryMethod || 'easy_ship']}</Text>
+            {form.savedDeliveryMethod === 'fbb' ? <Text style={type.small}>Stock for this product is managed by the Bulkimart warehouse (menu → FBB warehouse).</Text> : null}
+            {isEditing && form.deliveryMethod !== form.savedDeliveryMethod ? (
+              <Text style={type.small}>Orders already placed keep their original delivery method. The change applies to new orders.</Text>
+            ) : null}
+          </View>
+        ) : null}
 
         <View style={styles.box}>
           <SwitchRow label="↩️ Allow returns" value={form.returnable} disabled={saving} onValueChange={(v) => set('returnable', v)}

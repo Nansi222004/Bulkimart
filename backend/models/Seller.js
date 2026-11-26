@@ -246,6 +246,38 @@ const sellerSchema = new Schema(
      */
     serviceRadiusKm: { type: Number, min: 0.1, max: RADIUS_HARD_SAFETY_CEILING_KM },
 
+    /**
+     * Where this seller delivers Self Delivery products (services/selfDeliveryArea.service.js).
+     * Self Delivery has no courier serviceability check of its own, so nationwide coverage is never
+     * assumed: a customer can buy a Self Delivery item only when the delivery pincode, or its state,
+     * is listed here. Absent = no Self Delivery coverage. Easy Ship and Quick ignore it.
+     */
+    selfDelivery: {
+      type: new Schema({
+        pincodes: { type: [String], default: undefined },
+        states: { type: [String], default: undefined },
+        updatedAt: Date,
+      }, { _id: false }),
+      default: undefined,
+    },
+
+    /**
+     * FBB pilot: an admin opened Fulfilled by Bulkimart to this seller (services/deliveryMethod.service.js
+     * fbbSellerEligible). Absent = not in the pilot. Gates new FBB activity only; existing orders,
+     * charges and returns never read it. Who changed it, and when, stays on the record.
+     */
+    fbbPilot: {
+      type: new Schema({
+        enabled: { type: Boolean, default: false },
+        note: { type: String, trim: true, maxlength: 300 },
+        changedAt: Date,
+        changedBy: { type: Schema.Types.ObjectId, ref: 'Admin' },
+        enabledAt: Date,
+        enabledBy: { type: Schema.Types.ObjectId, ref: 'Admin' },
+      }, { _id: false }),
+      default: undefined,
+    },
+
     // Business Metrics
     commissionRate: { type: Number, default: 10 },
     rating:         { type: Number, default: 0 },

@@ -18,6 +18,8 @@ export const MEDIA_CATEGORIES = Object.freeze({
   'seller.product':    { visibility: 'public',      dir: 'products',           accept: [...IMAGES, 'svg'],        maxBytes: 5 * MB, maxSide: 2048, output: 'webp' },
   // Product videos are always kept on our own server (never Cloudinary): MP4 H.264, up to 60 s, 1080p, 50 MB.
   'seller.productvideo': { visibility: 'public',    dir: 'product-videos',     accept: ['mp4'],                   maxBytes: 50 * MB, maxSide: 1920, video: { maxDurationSec: 60, maxLongSide: 1920 } },
+  // Training videos for sellers and riders (admin-uploaded tutorials): our own server, MP4 H.264, up to 30 min, 1080p, 300 MB.
+  'admin.trainingvideo': { visibility: 'public',    dir: 'training-videos',    accept: ['mp4'],                   maxBytes: 300 * MB, maxSide: 1920, video: { maxDurationSec: 1800, maxLongSide: 1920 } },
   // Category-attribute documents a seller attaches (hallmark certificate, manual …): signed links only.
   'seller.productdoc': { visibility: 'private',     dir: 'product-documents',  accept: [...IMAGES, 'pdf'],        maxBytes: 5 * MB, maxSide: 2560, output: 'webp' },
   'seller.branding':   { visibility: 'public',      dir: 'stores',             accept: IMAGES,                    maxBytes: 5 * MB, maxSide: 2560, output: 'webp' },
@@ -45,6 +47,7 @@ const FOLDER_PREFIXES = [
   ['support-tickets', 'shared.ticket'],
   ['product-documents', 'seller.productdoc'],
   ['product-videos', 'seller.productvideo'],
+  ['training-videos', 'admin.trainingvideo'],
   ['products', 'seller.product'],
   ['seller-branding', 'seller.branding'],
   ['seller-kyc', 'seller.kyc'],

@@ -389,7 +389,7 @@ export function ParcelBookingFlow({ policy, flags, addresses = [], profile, onBo
   const storageKey = parcelDraftKey(profile?._id);
   const [state, setState] = useState(() => readParcelDraft(storageKey, initialParcelJourney(profile, policy)));
   const [busy, setBusy] = useState(false), [error, setError] = useState(''), [notice, setNotice] = useState(''), [now, setNow] = useState(Date.now());
-  const [sheet, setSheet] = useState(null), [termsOpen, setTermsOpen] = useState(false), [mapOpen, setMapOpen] = useState(false), [showAddresses, setShowAddresses] = useState(false), [goodsDraft, setGoodsDraft] = useState(null);
+  const [sheet, setSheet] = useState(null), [termsOpen, setTermsOpen] = useState(false), [mapOpen, setMapOpen] = useState(false), [showAddresses, setShowAddresses] = useState(false), [goodsDraft, setGoodsDraft] = useState(null), [addressEdit, setAddressEdit] = useState({});
   const generation = useRef(0), lock = useRef(false), mounted = useRef(true), controller = useRef(null), latest = useRef(state);
   latest.current = state;
   const vehicleMode = parcelVehicleMode(policy);
@@ -598,6 +598,10 @@ export function ParcelBookingFlow({ policy, flags, addresses = [], profile, onBo
     const kind = state.step === 'pickupDetails' ? 'pickup' : 'dropoff', a = state[kind], pickup = kind === 'pickup';
     const mine = Boolean(profile?.phone && a.phone === profile.phone && a.name === (profile.name || a.name));
     const edit = (key, value) => change({ [kind]: { ...a, [key]: value } });
+    // Search results and the map pin can carry a wrong street or pincode: the customer can always correct both.
+    // Once corrected it is a new address, not the saved one it came from.
+    const fix = (key, value) => change({ [kind]: { ...a, [key]: value, savedId: '' } });
+    const editingAddress = Boolean(addressEdit[kind] || a.approximate || !a.address?.trim());
     return <View>{header}
       <View>
         <ParcelMap pickup={pickup ? a : null} dropoff={pickup ? null : a} editable={kind} onPinChange={p => change({ [kind]: { ...a, lat: p.lat, lng: p.lng, approximate: true, savedId: '' } })} />
@@ -606,12 +610,14 @@ export function ParcelBookingFlow({ policy, flags, addresses = [], profile, onBo
       <PCard style={{ marginTop: 0 }}>
         <View style={styles.detailsAddress}>
           <Dot kind={kind} />
-          <View style={{ flex: 1 }}><Text style={{ fontWeight: '700' }} numberOfLines={1}>{a.address.split(',')[0] || 'Selected location'}</Text><Text style={{ fontSize: 12.5, color: MUTED }} numberOfLines={2}>{a.address}</Text>{a.approximate ? <Text style={styles.small}>Pin moved — check the address and pincode.</Text> : null}</View>
+          <View style={{ flex: 1 }}><Text style={{ fontWeight: '700' }} numberOfLines={1}>{a.address.split(',')[0] || 'Selected location'}</Text><Text style={{ fontSize: 12.5, color: MUTED }} numberOfLines={2}>{a.address}</Text>{a.approximate ? <Text style={styles.small}>Pin moved — check the address and pincode below.</Text> : null}
+            {!editingAddress ? <Pressable onPress={() => setAddressEdit(s => ({ ...s, [kind]: true }))} accessibilityRole="button" hitSlop={8} style={{ marginTop: 6 }}><Text style={{ color: BLUE, fontSize: 13, fontWeight: '600' }}>Address or pincode wrong? Edit it</Text></Pressable> : null}</View>
           <PBtn variant="outline" title="Change" onPress={() => go(kind)} style={{ minHeight: 34, paddingVertical: 6, borderColor: BLUE }} />
         </View>
         {messages}
+        {editingAddress ? <PField label="Street, area and city" value={a.address || ''} multiline maxLength={400} onChangeText={t => fix('address', t)} /> : null}
         <PField label="House / Apartment / Shop (optional)" value={a.building || ''} maxLength={100} onChangeText={t => edit('building', t)} />
-        {!/^\d{6}$/.test(a.pincode || '') ? <PField label="Pincode" value={a.pincode || ''} maxLength={6} keyboardType="number-pad" onChangeText={t => edit('pincode', t.replace(/\D/g, ''))} /> : null}
+        <PField label="Pincode" value={a.pincode || ''} maxLength={6} keyboardType="number-pad" onChangeText={t => fix('pincode', t.replace(/\D/g, ''))} />
         <PField label={pickup ? 'Sender’s name' : 'Receiver’s name'} value={a.name || ''} maxLength={100} onChangeText={t => edit('name', t)} />
         <PField label={pickup ? 'Sender’s mobile number' : 'Receiver’s mobile number'} value={a.phone || ''} maxLength={16} keyboardType="phone-pad" onChangeText={t => edit('phone', t)} />
         {profile?.phone ? <PCheck checked={mine} onPress={() => change({ [kind]: { ...a, ...(mine ? { name: '', phone: '' } : { name: profile.name || a.name, phone: profile.phone }) } })}><Text>Use my mobile number: {profile.phone}</Text></PCheck> : null}

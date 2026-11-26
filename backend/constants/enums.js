@@ -98,8 +98,23 @@ export const ECOM_VENDOR_TRANSITIONS = COURIER_VENDOR_TRANSITIONS;
  * the question is the carrier. An order with no carrier recorded falls to the
  * rider set, which is the older and safer of the two.
  */
+/**
+ * A Self Delivery parcel the seller handed to their own courier ('external'). The seller is the only
+ * reporter, so it may confirm delivery straight from dispatched (many couriers skip an out-for-delivery
+ * scan). Dispatch itself happens only through the external-courier endpoint, which records the tracking.
+ * Forward-only: nothing here moves an order back.
+ */
+export const EXTERNAL_COURIER_VENDOR_TRANSITIONS = {
+  ...VENDOR_ORDER_TRANSITIONS,
+  [ORDER_STATUS.PREPARING]: [ORDER_STATUS.CANCELLED],
+  [ORDER_STATUS.DISPATCHED]: [ORDER_STATUS.OUT_FOR_DELIVERY, ORDER_STATUS.DELIVERED],
+  [ORDER_STATUS.OUT_FOR_DELIVERY]: [ORDER_STATUS.DELIVERED],
+};
+
 export const vendorTransitions = (carrier) =>
-  carrier === 'shiprocket' ? COURIER_VENDOR_TRANSITIONS : VENDOR_ORDER_TRANSITIONS;
+  carrier === 'shiprocket' ? COURIER_VENDOR_TRANSITIONS
+    : carrier === 'external' ? EXTERNAL_COURIER_VENDOR_TRANSITIONS
+      : VENDOR_ORDER_TRANSITIONS;
 
 /** The states a vendor can still pull an order out of. */
 export const VENDOR_CANCELLABLE_STATUSES = [
@@ -145,7 +160,11 @@ export const OFFER_ATTEMPT_STATUS = {
 export const OFFER_ATTEMPT_STATUSES = Object.values(OFFER_ATTEMPT_STATUS);
 
 export const ORDER_TYPES = [CHANNEL.ECOM, CHANNEL.GROCERY, 'subscription'];
-export const DELIVERY_TYPES = ['shiprocket', 'internal'];
+// 'external' = a Self Delivery order the seller handed to their own courier (Order.externalShipment).
+// Like 'shiprocket' it is never offered to Bulkimart riders; unlike it, the seller reports every step.
+export const DELIVERY_TYPES = ['shiprocket', 'internal', 'external'];
+/** Carriers that are not one of our riders: rider broadcast, claim and assignment never apply to them. */
+export const COURIER_DELIVERY_TYPES = ['shiprocket', 'external'];
 
 // ------------------------------------------------------- e-commerce delivery
 /**
@@ -169,6 +188,23 @@ export const DELIVERY_MODE = {
   SCHEDULED: 'scheduled',
 };
 export const DELIVERY_MODES = Object.values(DELIVERY_MODE);
+
+/**
+ * How a Shop All (e-commerce) product is fulfilled — chosen by the seller per product.
+ *
+ * Distinct from DELIVERY_TYPES (the carrier picked for one order) and DELIVERY_MODE
+ * (what the customer chose). Absent on a product or order means EASY_SHIP: every
+ * e-commerce product and order created before delivery methods existed. Never set on
+ * Quick Commerce or digital products. See services/deliveryMethod.service.js.
+ */
+export const DELIVERY_METHOD = {
+  EASY_SHIP: 'easy_ship',
+  SELF_DELIVERY: 'self_delivery',
+  FBB: 'fbb',
+};
+export const DELIVERY_METHODS = Object.values(DELIVERY_METHOD);
+/** Who runs fulfilment for an order: the seller, or Bulkimart's warehouse (FBB). */
+export const FULFILLMENT_OWNERS = ['seller', 'bulkimart'];
 
 // ---------------------------------------------------------------- vendors
 export const VENDOR_STATUS = {

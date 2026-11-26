@@ -30,6 +30,34 @@ import { removeStoredEbook, storeEbookPdf } from '../services/ebookStorage.servi
 import { assertEbookUploadOwnership } from '../services/digitalProduct.service.js';
 import StockMovement from '../models/StockMovement.js';
 import { resolveProductVideos, storeProductVideo } from '../services/productVideo.service.js';
+import { resolveDeliveryMethodInput, deliveryMethodOptions, assertFbbSellerEligible } from '../services/deliveryMethod.service.js';
+import DeliveryMethodChange from '../models/DeliveryMethodChange.js';
+import { selfDeliveryAreaConfigured } from '../services/selfDeliveryArea.service.js';
+import WarehouseStock from '../models/WarehouseStock.js';
+import { fbbReadiness, currentChargeConfig, convertProductToFbb } from '../services/warehouse.service.js';
+import { chargePreview } from '../services/fbbCharges.service.js';
+
+// @desc    FBB charges a seller sees before choosing or converting to Fulfilled by Bulkimart
+// @route   GET /api/products/seller/fbb-charges
+/** The signed-in seller's FBB pilot state, or undefined for an admin (who sees only the global switches). */
+const viewingSeller = async (req) => (await Seller.findOne({ userId: req.user._id }).select('fbbPilot').lean()) ?? undefined;
+export const getFbbChargePreview = asyncHandler(async (req, res) => ok(res, { ...(await chargePreview()), readiness: await fbbReadiness({ seller: await viewingSeller(req) }) }));
+
+// @desc    Convert an Easy Ship / Self Delivery listing to FBB (one-way; charges accepted)
+// @route   POST /api/products/:id/fbb-conversion   { acceptedChargeVersion, confirm: true }
+export const convertToFbb = asyncHandler(async (req, res) => {
+  if (req.body?.confirm !== true) throw httpError(400, 'Confirm that the change to Fulfilled by Bulkimart is permanent');
+  const seller = await Seller.findOne({ userId: req.user._id });
+  if (!seller || seller.status !== 'approved') throw httpError(403, 'Approved Seller account required');
+  const result = await convertProductToFbb({ productId: req.params.id, seller, userId: req.user._id, acceptedChargeVersion: req.body.acceptedChargeVersion });
+  return ok(res, result, result.alreadyConverted ? 'Already Fulfilled by Bulkimart' : 'Converted to Fulfilled by Bulkimart. Send the stock to the warehouse; it goes on sale once received.');
+});
+
+/** Self Delivery needs a declared delivery area first: nationwide coverage is never assumed. */
+export const assertSelfDeliveryAreaForProducts = (seller) => {
+  if (!selfDeliveryAreaConfigured(seller)) throw httpError(409, 'Add the pincodes or states you deliver to (Store profile → Self Delivery area) before choosing Self Delivery.', { code: 'SELF_DELIVERY_AREA_REQUIRED' });
+};
+import { DELIVERY_METHOD } from '../constants/enums.js';
 
 const parseDigitalDetails = (input) => {
   let details = input;
@@ -679,6 +707,11 @@ export const previewWholesaleProduct = asyncHandler(async (req, res) => {
 // @desc    Create a product (Seller/SHG)
 // @route   POST /api/products
 // @access  Private
+// @desc    Delivery methods the product form may offer, and whether the feature is switched on
+// @route   GET /api/products/seller/delivery-methods
+// @access  Private (seller/admin)
+export const getDeliveryMethodOptions = asyncHandler(async (req, res) => ok(res, deliveryMethodOptions(await viewingSeller(req))));
+
 export const createProduct = asyncHandler(async (req, res) => {
   const {
     type, name, description, category, subCategory, tags, sameDay,
@@ -818,10 +851,26 @@ export const createProduct = asyncHandler(async (req, res) => {
   if (![CHANNEL.GROCERY, CHANNEL.ECOM].includes(type)) {
     throw httpError(400, 'Products must be listed in Quick Commerce or Shop All');
   }
+  // Easy Ship / Self Delivery (physical Shop All only). Not sent = Easy Ship, stored as absent.
+  const deliveryMethod = resolveDeliveryMethodInput(req.body.deliveryMethod, { type, fulfillmentType }, { isNew: true });
+  if (deliveryMethod && deliveryMethod !== DELIVERY_METHOD.EASY_SHIP) productData.deliveryMethod = deliveryMethod;
   const seller = await Seller.findOne({ userId: req.user._id });
   if (!seller || seller.status !== 'approved') {
     res.status(400);
     throw new Error('Approved Seller account required to list products');
+  }
+  if (productData.deliveryMethod === DELIVERY_METHOD.SELF_DELIVERY) assertSelfDeliveryAreaForProducts(seller);
+  if (productData.deliveryMethod === DELIVERY_METHOD.FBB) {
+    assertFbbSellerEligible(seller);
+    const readiness = await fbbReadiness({ seller });
+    if (!readiness.ready) throw httpError(409, `Fulfilled by Bulkimart is not available: ${readiness.blockers.join('; ')}`, { code: 'FBB_NOT_READY' });
+    const config = await currentChargeConfig();
+    if (config && Number(req.body.fbbChargeVersion) !== config.version) throw httpError(409, 'Review and accept the current FBB charges first', { code: 'FBB_CHARGES_CHANGED' });
+    if (sellingChannels?.includes('wholesale') || b2bOnly) throw httpError(400, 'Fulfilled by Bulkimart is for retail E-Commerce listings');
+    // Stock comes only from verified warehouse receipts.
+    parsedVariants = parsedVariants.map((v) => ({ ...v, stock: 0 }));
+    productData.sameDay = undefined;
+    productData.fbb = { convertedAt: new Date(), convertedBy: req.user._id, chargeConfigVersionAccepted: config?.version, fromMethod: 'new_listing', sellerHeldAtConversion: [] };
   }
   parsedVariants = applyWholesalePricing(parsedVariants, seller);
   if (sellingChannels && !sellingChannels.includes('wholesale') && parsedVariants.some(v => v.wholesalePricing?.enabled)) throw httpError(400, 'Enabled Wholesale offers require the Wholesale selling channel');
@@ -872,6 +921,10 @@ export const createProduct = asyncHandler(async (req, res) => {
 
   // Opening stock in the stock history.
   await recordStockMovements((product.variants || []).map((v) => ({ productId: product._id, variantId: v._id, variantName: v.name, delta: Number(v.stock) || 0, reason: 'product_created', actorType: 'seller', actorId: req.user._id })));
+  if (product.deliveryMethod) {
+    await DeliveryMethodChange.create({ productId: product._id, sellerId: product.sellerId, from: DELIVERY_METHOD.EASY_SHIP, to: product.deliveryMethod, actorType: 'seller', actorId: req.user._id, source: 'product_create' })
+      .catch((error) => console.error('[DELIVERY METHOD] history write failed:', error.message));
+  }
 
   // Populate so the seller's list can render immediately without a refetch
   await product.populate('category', 'name slug type');
@@ -1083,6 +1136,21 @@ export const updateProduct = asyncHandler(async (req, res) => {
   const stockBefore = new Map((product.variants || []).map((v) => [String(v._id), Number(v.stock) || 0]));
   const rootStockBefore = Number(product.stock) || 0;
 
+  // An FBB listing's stock is the warehouse's verified stock: the seller may edit everything else, but stock
+  // numbers sent by the form are ignored (kept as they are), and a variant that still has warehouse stock
+  // cannot be removed. Same-Day is never offered for FBB.
+  if (product.deliveryMethod === DELIVERY_METHOD.FBB) {
+    if (sameDay !== undefined && parseProductSameDay(sameDay, product.sameDay)?.enabled) throw httpError(409, 'Same-day delivery is not available for Fulfilled by Bulkimart products');
+    if (parsedVariants !== undefined) {
+      const kept = new Set(parsedVariants.map((v) => String(v._id || '')));
+      const removed = (product.variants || []).filter((v) => !kept.has(String(v._id)));
+      if (removed.length && await WarehouseStock.exists({ productId: product._id, variantId: { $in: removed.map((v) => v._id) }, $or: [{ sellable: { $gt: 0 } }, { reserved: { $gt: 0 } }, { damaged: { $gt: 0 } }, { quarantine: { $gt: 0 } }] })) {
+        throw httpError(409, 'A variant that still has stock in the Bulkimart warehouse cannot be removed');
+      }
+      parsedVariants = parsedVariants.map((v) => ({ ...v, stock: v._id ? (stockBefore.get(String(v._id)) ?? 0) : 0 }));
+    }
+  }
+
   // Category details and variant options, re-checked when the details, the variants or the category change.
   // Required fields are enforced when the seller sends the details or moves the product to another category;
   // a variant-only edit of an older listing (created before its category had fields) is not blocked by them.
@@ -1131,6 +1199,15 @@ export const updateProduct = asyncHandler(async (req, res) => {
     if (product.fulfillmentType === 'digital') throw httpError(400, 'E-books do not support physical delivery options');
     product.sameDay = parseProductSameDay(sameDay, product.sameDay);
   }
+
+  // Delivery method change (Easy Ship ⇄ Self Delivery; FBB is one-way). Existing orders keep
+  // the method each line was bought under; only future purchases follow the new one.
+  const methodBefore = product.deliveryMethod || DELIVERY_METHOD.EASY_SHIP;
+  const nextDeliveryMethod = resolveDeliveryMethodInput(req.body.deliveryMethod, product);
+  if (nextDeliveryMethod === DELIVERY_METHOD.SELF_DELIVERY) {
+    assertSelfDeliveryAreaForProducts(await Seller.findById(product.sellerId).select('selfDelivery').lean());
+  }
+  if (nextDeliveryMethod) product.deliveryMethod = nextDeliveryMethod === DELIVERY_METHOD.EASY_SHIP ? undefined : nextDeliveryMethod;
 
   // Full replace of the cross-listed channels, when the edit form sends one.
   // Omitted entirely (`undefined`) leaves the existing cross-listings alone —
@@ -1192,6 +1269,11 @@ export const updateProduct = asyncHandler(async (req, res) => {
       ? updatedProduct.variants.map((v) => ({ productId: updatedProduct._id, variantId: v._id, variantName: v.name, delta: (Number(v.stock) || 0) - (stockBefore.get(String(v._id)) ?? 0) }))
       : [{ productId: updatedProduct._id, delta: (Number(updatedProduct.stock) || 0) - rootStockBefore }];
     await recordStockMovements(moves.map((m) => ({ ...m, reason: 'product_edit', actorType: req.userType === 'admin' ? 'admin' : 'seller', actorId: req.user._id })));
+  }
+  if (nextDeliveryMethod && nextDeliveryMethod !== methodBefore) {
+    await DeliveryMethodChange.create({ productId: updatedProduct._id, sellerId: updatedProduct.sellerId, from: methodBefore, to: nextDeliveryMethod,
+      actorType: req.userType === 'admin' ? 'admin' : 'seller', actorId: req.user._id, source: 'product_edit' })
+      .catch((error) => console.error('[DELIVERY METHOD] history write failed:', error.message));
   }
   res.status(200).json({
     success: true,
@@ -1295,7 +1377,7 @@ export const adjustProductStock = asyncHandler(async (req, res) => {
     throw httpError(400, 'Please provide a non-zero whole-number stock adjustment');
   }
 
-  const product = await Product.findById(req.params.id).select('sellerId shgStoreId isDeleted variants stock fulfillmentType');
+  const product = await Product.findById(req.params.id).select('sellerId shgStoreId isDeleted variants stock fulfillmentType deliveryMethod');
   if (!product) {
     res.status(404);
     throw new Error('Product not found');
@@ -1304,6 +1386,7 @@ export const adjustProductStock = asyncHandler(async (req, res) => {
     throw httpError(400, 'This product has been deleted and can no longer be adjusted');
   }
   if (product.fulfillmentType === 'digital') throw httpError(400, 'E-books do not use physical inventory');
+  if (product.deliveryMethod === DELIVERY_METHOD.FBB) throw httpError(409, 'Stock of a Fulfilled by Bulkimart product is managed by the Bulkimart warehouse', { code: 'FBB_STOCK_READ_ONLY' });
 
   await assertOwnsProduct(product, req);
 
@@ -1366,6 +1449,9 @@ export const deleteProduct = asyncHandler(async (req, res) => {
   }
 
   await assertOwnsProduct(product, req);
+  if (product.deliveryMethod === DELIVERY_METHOD.FBB && await WarehouseStock.exists({ productId: product._id, $or: [{ sellable: { $gt: 0 } }, { reserved: { $gt: 0 } }, { damaged: { $gt: 0 } }, { quarantine: { $gt: 0 } }] })) {
+    throw httpError(409, 'This product still has stock in the Bulkimart warehouse. Contact support to arrange its return before deleting it.');
+  }
 
   // Soft delete — must NOT reuse isActive, which is the admin "go live" flag.
   // Otherwise approving a product would resurrect a deleted one.

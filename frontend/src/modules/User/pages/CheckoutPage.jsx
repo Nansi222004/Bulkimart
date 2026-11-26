@@ -100,6 +100,12 @@ const CheckoutPage = () => {
 
   // Starts on COD as before; the Online option shows its lower price and "Save ₹X" next to it.
   const [paymentMethod, setPaymentMethod] = useState('Cash on Delivery');
+  // The server decides whether this basket may use Cash on Delivery (Self Delivery items are prepaid only).
+  const codVerdict = unified.data?.payment?.cod || serverCart?.payment?.cod || null;
+  const codUnavailable = codVerdict?.available === false;
+  useEffect(() => {
+    if (codUnavailable) setPaymentMethod((current) => (current === 'Cash on Delivery' ? 'Online Payment' : current));
+  }, [codUnavailable]);
   useEffect(() => {
     if (isDigitalCart) setPaymentMethod('Online Payment');
   }, [isDigitalCart]);
@@ -1239,9 +1245,14 @@ const CheckoutPage = () => {
             </label>
 
             {/* Cash on Delivery */}
+            {!isDigitalCart && codUnavailable && (
+              <p role="status" style={{ fontSize: 12, color: '#9a3412', background: '#fff7ed', border: '1px solid #fed7aa', borderRadius: 10, padding: 10, margin: 0 }}>
+                💵 {codVerdict.reason || 'Cash on Delivery is not available for this basket.'}
+              </p>
+            )}
             <label className={`checkout-selection checkout-payment${paymentMethod === 'Cash on Delivery' ? ' is-selected' : ''}`}
               style={{ 
-                display: isDigitalCart ? 'none' : 'flex',
+                display: isDigitalCart || codUnavailable ? 'none' : 'flex',
                 gap: 12, 
                 padding: 12, 
                 borderRadius: 10, 
@@ -1255,7 +1266,8 @@ const CheckoutPage = () => {
                 type="radio" 
                 name="payment_method"
                 checked={paymentMethod === 'Cash on Delivery'}
-                onChange={() => setPaymentMethod('Cash on Delivery')}
+                disabled={codUnavailable}
+                onChange={() => { if (!codUnavailable) setPaymentMethod('Cash on Delivery'); }}
                 style={{ cursor: 'pointer' }}
               />
               <div style={{ display: 'flex', gap: 10, alignItems: 'center' }}>

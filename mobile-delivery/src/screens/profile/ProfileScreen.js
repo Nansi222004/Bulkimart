@@ -60,13 +60,30 @@ export default function ProfileScreen({ navigation }) {
 
   const onRefresh = async () => { setRefreshing(true); await Promise.allSettled([refreshProfile(), duty.loadSummary()]); setRefreshing(false); };
 
-  const openZones = () => { setZones((p.zones || []).join(', ')); setZoneVersion(p.__v); setZoneError(''); setZoneConflict(false); setEditingZones(true); };
+  const [zonesAtOpen, setZonesAtOpen] = useState([]);
+  const openZones = () => { setZones((p.zones || []).join(', ')); setZonesAtOpen(p.zones || []); setZoneVersion(p.__v); setZoneError(''); setZoneConflict(false); setEditingZones(true); };
+  const sameZones = (a = [], b = []) => a.length === b.length && a.every((v, i) => String(v) === String(b[i]));
   const saveZones = async () => {
     const entries = parsePincodes(zones);
-    if (!isValidPincodeList(entries)) { setZoneError('Enter 1 to 50 valid 6-digit pincodes, separated by commas.'); return; }
+    if (!isValidPincodeList(entries)) {
+      const bad = entries.find((v) => !/^\d{6}$/.test(v));
+      setZoneError(bad ? `"${bad}" is not a valid 6-digit pincode.` : 'Enter 1 to 50 valid 6-digit pincodes, separated by commas.');
+      return;
+    }
     setBusy('zones'); setZoneError('');
     try {
-      await deliveryApi.saveServiceArea(entries, zoneVersion);
+      // The profile version also moves with live location pings and order activity, not only
+      // pincode edits. On a 409, reload; if the saved pincodes are still the ones this editor
+      // started from, nobody else changed them, so retry with the fresh version.
+      let version = zoneVersion;
+      for (let attempt = 0; ; attempt += 1) {
+        try { await deliveryApi.saveServiceArea(entries, version); break; } catch (e) {
+          if (e.status !== 409 || attempt >= 2) throw e;
+          const fresh = await refreshProfile();
+          if (!fresh.ok || !sameZones(fresh.profile?.zones, zonesAtOpen)) throw e;
+          version = fresh.profile.__v; setZoneVersion(version);
+        }
+      }
       await refreshProfile();
       setEditingZones(false);
       toast.show('Service area saved. These pincodes apply to new offers.', 'success');

@@ -12,7 +12,9 @@ import Product from '../models/Product.js';
 import { applyForwardTracking, logCourierEvent, safePayload, assertShiprocketCodAllowed, shiprocketCodBlocked, SHIPROCKET_COD_MESSAGE } from '../services/courierTracking.service.js';
 import { asyncHandler } from '../middlewares/error.middleware.js';
 import { ok, httpError } from '../utils/response.js';
-import { CHANNEL, ORDER_STATUS } from '../constants/enums.js';
+import { CHANNEL, ORDER_STATUS, DELIVERY_METHOD } from '../constants/enums.js';
+import { orderDeliveryMethod, parseExternalShipmentInput, selfDeliveryFeeCreditEnabled } from '../services/deliveryMethod.service.js';
+import { sellerUpdateExternalShipment } from '../services/externalCourier.service.js';
 import crypto from 'crypto';
 import Payment from '../models/Payment.js';
 import Snapshot from '../models/QuickCommerceFinancialSnapshot.js';
@@ -38,6 +40,9 @@ export const sellerAndOrder = async (req) => {
     throw httpError(403, 'You can only manage fulfillment for your own order');
   }
   if (!order.items.every((item) => String(item.sellerId) === String(seller._id))) throw httpError(409, 'This order contains multiple stores and needs platform support before fulfillment.');
+  // Fulfilled by Bulkimart: the warehouse fulfils; the seller can view but not act (services/fbbFulfillment.service.js).
+  if (order.fulfillmentOwner === 'bulkimart' && !req.fbbAdmin) throw httpError(403, 'Bulkimart fulfils this order from its warehouse; you can follow it but not change it.', { code: 'FBB_SELLER_READ_ONLY' });
+  if (req.fbbAdmin && order.fulfillmentOwner !== 'bulkimart') throw httpError(409, 'Only Fulfilled by Bulkimart orders are handled here');
   // Earlier rider cancellations left this reference behind. Release only a
   // matching rejected trip; a concurrent new assignment must win unchanged.
   if (order.status === ORDER_STATUS.DISPATCHED && order.deliveryId && !order.deliveryPartnerId
@@ -93,7 +98,7 @@ export const getFulfillmentOptions = asyncHandler(async (req, res) => {
   }
   const manualRiderCount = eligibleRiders.length;
   const prepared = order.status === ORDER_STATUS.PREPARING && Boolean(order.fulfillment?.readyAt || order.fulfillment?.method || !order.fulfillment?.assignmentPolicy);
-  const manualPrepared = prepared || order.status === ORDER_STATUS.DISPATCHED && order.deliveryType !== 'shiprocket';
+  const manualPrepared = order.deliveryType !== 'external' && (prepared || order.status === ORDER_STATUS.DISPATCHED && order.deliveryType !== 'shiprocket');
   const shipmentLocked = Boolean(order.shiprocket?.orderId || order.shiprocket?.shipmentId
     || ['creating', 'assigning', 'reconciliation_required'].includes(order.shiprocket?.status));
   const accepted = order.vendorDecision?.status === 'accepted';
@@ -109,7 +114,10 @@ export const getFulfillmentOptions = asyncHandler(async (req, res) => {
   }
   const addressReady = Boolean(pickup.pincode && drop.pincode && drop.phone);
 
-  const courierChannelAllowed = order.delivery?.mode !== 'same_day' && (order.type === CHANNEL.ECOM
+  // Self Delivery never uses Bulkimart's Shiprocket account: the seller delivers by rider or own courier.
+  const method = orderDeliveryMethod(order);
+  const selfDelivery = method === DELIVERY_METHOD.SELF_DELIVERY;
+  const courierChannelAllowed = !selfDelivery && order.delivery?.mode !== 'same_day' && (order.type === CHANNEL.ECOM
     || (order.type === CHANNEL.GROCERY && capabilities.quickCommerce));
   const quickConfigState = order.type === CHANNEL.GROCERY ? await getQuickCommerceConfig() : null;
   const feeSnapshot = order.type === CHANNEL.GROCERY ? await Snapshot.findOne({ orderId: order._id, sellerId: seller._id }).lean() : null;
@@ -158,9 +166,18 @@ export const getFulfillmentOptions = asyncHandler(async (req, res) => {
       quickFeeRuleConfigured && quickConfigState.activationReady && quickConfigState.config.enabled
     ));
 
+  const externalLocked = shipmentLocked || Boolean(order.deliveryId || order.deliveryPartnerId || order.fulfillment?.method);
   return ok(res, {
     orderId: order._id,
     channel: order.type,
+    deliveryMethod: method || null,
+    // The seller's own courier (Self Delivery only). Courier name, tracking ID, tracking link and dispatch date are required.
+    external: {
+      available: selfDelivery && accepted && prepared && paymentVerified && !externalLocked,
+      reason: !selfDelivery ? 'Only Self Delivery products can be sent with your own courier.'
+        : stateReason || (externalLocked ? 'A delivery method has already been chosen for this order.' : null),
+      requiredFields: ['courierName', 'awb', 'trackingUrl', 'dispatchDate'],
+    },
     stateReady: accepted && manualPrepared && paymentVerified && !order.deliveryId && !order.deliveryPartnerId,
     stateReason,
     pickup: { name: pickup.name, address: pickup.address, city: pickup.city, state: pickup.state, pincode: pickup.pincode, phone: pickup.phone, registeredLocation: seller.thirdPartyFulfillment?.shiprocketPickupLocation },
@@ -188,7 +205,7 @@ export const getFulfillmentOptions = asyncHandler(async (req, res) => {
       quote: providerQuote,
       quickCommerceSupported: capabilities.quickCommerce,
       codUnavailable: codBlocked,
-      reason: stateReason || (codBlocked && !shipmentLocked ? SHIPROCKET_COD_MESSAGE : shipmentLocked ? 'Courier setup already exists or needs reconciliation. Refresh the order and contact support before retrying.'
+      reason: stateReason || (selfDelivery ? 'Self Delivery orders are delivered by you — choose a Bulkimart rider or your own courier.' : codBlocked && !shipmentLocked ? SHIPROCKET_COD_MESSAGE : shipmentLocked ? 'Courier setup already exists or needs reconciliation. Refresh the order and contact support before retrying.'
         : order.type === CHANNEL.GROCERY && (!quickConfigState.activationReady || !quickConfigState.config.enabled) ? 'Quick Commerce Shiprocket remains disabled pending approved fees, policies and seller collection reconciliation'
         : order.delivery?.mode === 'same_day' ? 'Same-Day requires Bulkimart delivery'
         : !capabilities.configured ? 'Shiprocket is not configured'
@@ -213,10 +230,59 @@ export const getFulfillmentOptions = asyncHandler(async (req, res) => {
 
 const activeShipmentStates = ['creating', 'assigning', 'reconciliation_required'];
 
+/**
+ * The Shiprocket "create order" body for one Bulkimart order.
+ *
+ * What the courier collects on a COD parcel is sub_total + shipping_charges − total_discount, so those three
+ * must reproduce the order's frozen payable exactly. Prices include GST, so no separate tax is sent.
+ *   - Items at the prices the customer was charged, plus the rider tip as its own line (unchanged).
+ *   - COD only: the checkout's COD handling fee (incl. its GST) as its own line, the same way the tip is
+ *     carried, so the collectable amount includes it. Sent as a line rather than `transaction_charges`
+ *     because that field could not be verified against Shiprocket's documentation; the line uses only the
+ *     fields every existing booking already sends. Prepaid bodies are unchanged.
+ *   - total_discount = whatever brings the gross down to the payable (coupons, platform discounts).
+ * A COD order must also agree with its frozen finance snapshot, which the remittance will be checked against.
+ * Anything that does not reconcile is refused before Shiprocket is contacted.
+ */
+export const buildShiprocketOrderPayload = (order, { pickupLocation, billingEmail, customerDeliveryCharge, packageSize, weight }) => {
+  const pricing = order.pricing || {};
+  const a = order.shippingAddress || {};
+  const cod = order.paymentMethod === 'cod';
+  const toPaise = value => Math.round(Number(value) * 100);
+  const tip = Number(pricing.tipAmount || 0);
+  const codFee = cod ? Number(pricing.codFeeTotal || 0) : 0;
+  // Prepaid keeps the exact sum it always sent; only a COD fee line adds (and rounds) a third term.
+  const grossItems = codFee > 0 ? Number((Number(pricing.subtotal) + tip + codFee).toFixed(2)) : Number(pricing.subtotal) + tip;
+  const payable = Number(pricing.totalAmount);
+  // An exchange replacement is prepaid (nothing to collect) and keeps the goods' full declared value for the
+  // courier's invoice and transit cover, instead of a 100% discount that would make it a ₹0 shipment.
+  const discount = order.exchange?.returnId ? 0 : Number((grossItems + Number(customerDeliveryCharge) - payable).toFixed(2));
+  if (![grossItems, discount, payable, codFee].every(Number.isFinite) || discount < 0 || codFee < 0) throw httpError(409, 'Order pricing does not reconcile; contact support before creating a shipment.');
+  if (cod) {
+    const collectablePaise = toPaise(grossItems) + toPaise(customerDeliveryCharge) - toPaise(discount);
+    const expectedPaise = order.financialSnapshot?.expectedPaise;
+    if (collectablePaise !== toPaise(payable) || (expectedPaise !== undefined && expectedPaise !== toPaise(payable))) {
+      throw httpError(409, 'The cash to collect does not match the order total; contact support before creating a COD shipment.', { code: 'COD_COLLECTABLE_MISMATCH' });
+    }
+  }
+  return {
+    order_id: order.orderNo, order_date: new Date(order.createdAt).toISOString().slice(0,19).replace('T',' '), pickup_location: pickupLocation,
+    billing_customer_name: a.name, billing_last_name: '', billing_address: [a.line1,a.line2].filter(Boolean).join(', '), billing_city: a.city,
+    billing_pincode: a.pincode, billing_state: a.state, billing_country: 'India', billing_email: billingEmail, billing_phone: a.phone, shipping_is_billing: true,
+    order_items: [...order.items.map(item => ({ name: item.name, sku: item.sku || String(item.productId), units: item.qty, selling_price: item.price })),
+      ...(tip > 0 ? [{ name: 'Delivery partner tip', sku: 'BULKIMART-TIP', units: 1, selling_price: tip }] : []),
+      ...(codFee > 0 ? [{ name: 'Cash on Delivery handling fee', sku: 'BULKIMART-COD-FEE', units: 1, selling_price: codFee }] : [])],
+    payment_method: cod ? 'COD' : 'Prepaid', sub_total: grossItems,
+    shipping_charges: customerDeliveryCharge, total_discount: discount, ...packageSize, weight,
+  };
+};
+
 export const selectManualFulfillment = asyncHandler(async (req, res) => {
   const { seller, order } = await sellerAndOrder(req);
   if (!storePickup(seller)) throw pickupLocationError(seller);
   if (await Snapshot.exists({ orderId: order._id })) throw httpError(409, 'A Shiprocket fee obligation exists; reconcile it before switching delivery method');
+  // A parcel already handed to the seller's own courier cannot also be offered to riders.
+  if (order.deliveryType === 'external' || order.fulfillment?.method === 'external_courier') throw httpError(409, 'This order was already handed to your courier. Refresh the order.');
   const riderId = req.body?.riderId;
   if (riderId && !mongoose.isValidObjectId(riderId)) throw httpError(400, 'Select a valid delivery partner');
   if (order.deliveryId || order.deliveryPartnerId) throw httpError(409, 'A delivery partner is already assigned. Refresh the order.');
@@ -252,7 +318,7 @@ export const selectManualFulfillment = asyncHandler(async (req, res) => {
   }, { $set: {
     status: nextStatus,
     ...(dispatchNow && !order.fulfillment?.readyAt ? { 'fulfillment.readyAt': now } : {}),
-    deliveryType: 'internal', 'fulfillment.method': 'manual', 'fulfillment.selectedBy': 'seller',
+    deliveryType: 'internal', 'fulfillment.method': 'manual', 'fulfillment.selectedBy': req.fulfillmentActor || 'seller',
     'fulfillment.selectedAt': now, 'fulfillment.chargeStatus': 'not_applicable',
     'fulfillment.requestedRiderId': riderId || null, 'fulfillment.requestedRiderNotifiedAt': null, needsManualAssignment: false,
   }, $push: { timeline: { status: nextStatus, timestamp: now, note: dispatchNow
@@ -299,6 +365,8 @@ export const createShiprocketShipment = asyncHandler(async (req, res) => {
     if (!state.config.enabled || !state.activationReady) throw httpError(409, 'Quick Commerce Shiprocket is disabled pending approved configuration and reconciliation');
     quickCollection = await requireVerifiedQuickCollection(order, seller._id);
   } else if (order.type !== CHANNEL.ECOM) throw httpError(409, 'Unsupported courier channel');
+  if (orderDeliveryMethod(order) === DELIVERY_METHOD.SELF_DELIVERY) throw httpError(409, 'Self Delivery orders are delivered by you, not through Bulkimart Shiprocket. Choose a Bulkimart rider or your own courier.');
+  if (order.deliveryType === 'external' || order.fulfillment?.method === 'external_courier') throw httpError(409, 'This order was already handed to another courier.');
   if (order.delivery?.mode === 'same_day') throw httpError(409, 'Same-Day delivery requires Bulkimart delivery; it cannot be switched to a standard courier.');
   if (order.vendorDecision?.status !== 'accepted' || order.status !== ORDER_STATUS.PREPARING) throw httpError(409, 'Accept and prepare the order before creating a shipment');
   if (!await paymentIsReady(order)) throw httpError(409, 'Payment is not verified');
@@ -362,28 +430,13 @@ export const createShiprocketShipment = asyncHandler(async (req, res) => {
   let remoteStarted = false;
   try {
     if (!shipmentId) {
-      const a = order.shippingAddress;
-      const pricing = order.pricing;
-      const tip = Number(pricing.tipAmount || 0);
-      const grossItems = Number(pricing.subtotal) + tip;
-      // An exchange replacement is prepaid (nothing to collect) and keeps the goods' full declared value for the
-      // courier's invoice and transit cover, instead of a 100% discount that would make it a ₹0 shipment.
-      const discount = order.exchange?.returnId ? 0 : Number((grossItems + quote.customerDeliveryCharge - Number(pricing.totalAmount)).toFixed(2));
-      if (![grossItems, discount, Number(pricing.totalAmount)].every(Number.isFinite) || discount < 0) throw httpError(409, 'Order pricing does not reconcile; contact support before creating a shipment.');
       // The billing contact is the customer, not the seller who is booking (req.user). Customers who signed up
       // with a phone number only have no email; the platform's order address is used for them.
       const customer = await User.findById(order.userId).select('email').lean();
       const billingEmail = customer?.email || process.env.SHIPROCKET_CONTACT_EMAIL || 'orders@bulkimart.in';
+      const payload = buildShiprocketOrderPayload(order, { pickupLocation, billingEmail, customerDeliveryCharge: quote.customerDeliveryCharge, packageSize, weight });
       remoteStarted = true;
-      const result = await createShiprocketOrder({
-        order_id: order.orderNo, order_date: new Date(order.createdAt).toISOString().slice(0,19).replace('T',' '), pickup_location: pickupLocation,
-        billing_customer_name: a.name, billing_last_name: '', billing_address: [a.line1,a.line2].filter(Boolean).join(', '), billing_city: a.city,
-        billing_pincode: a.pincode, billing_state: a.state, billing_country: 'India', billing_email: billingEmail, billing_phone: a.phone, shipping_is_billing: true,
-        order_items: [...order.items.map(item => ({ name: item.name, sku: item.sku || String(item.productId), units: item.qty, selling_price: item.price })),
-          ...(tip > 0 ? [{ name: 'Delivery partner tip', sku: 'BULKIMART-TIP', units: 1, selling_price: tip }] : [])],
-        payment_method: order.paymentMethod === 'cod' ? 'COD' : 'Prepaid', sub_total: grossItems,
-        shipping_charges: quote.customerDeliveryCharge, total_discount: discount, ...packageSize, weight,
-      });
+      const result = await createShiprocketOrder(payload);
       if (!result?.order_id || !result?.shipment_id) throw new Error('Incomplete provider response');
       shipmentId = String(result.shipment_id);
       const saved = await Order.updateOne(owner, { $set: { 'shiprocket.orderId': String(result.order_id), 'shiprocket.shipmentId': shipmentId, 'shiprocket.status': 'assigning', 'shiprocket.lastError': null } });
@@ -393,7 +446,7 @@ export const createShiprocketShipment = asyncHandler(async (req, res) => {
     const assigned = await assignCourier(shipmentId, courier.courier_company_id);
     if (!assigned?.awb) throw new Error('Provider did not confirm a waybill');
     const saved = await Order.updateOne(owner, { $set: {
-      deliveryType: 'shiprocket', 'fulfillment.method': 'shiprocket', 'fulfillment.selectedBy': 'seller',
+      deliveryType: 'shiprocket', 'fulfillment.method': 'shiprocket', 'fulfillment.selectedBy': req.fulfillmentActor || 'seller',
       'fulfillment.selectedAt': new Date(), 'fulfillment.vendorConfirmedAt': new Date(), 'fulfillment.chargeStatus': quickCollection ? 'collected' : 'not_applicable',
       'shiprocket.awb': assigned.awb, 'shiprocket.courier': assigned.courier_name || courier.courier_name,
       'shiprocket.trackingUrl': assigned.tracking_url, 'shiprocket.status': 'awb_assigned', 'shiprocket.lastError': null,
@@ -416,6 +469,73 @@ export const createShiprocketShipment = asyncHandler(async (req, res) => {
       ? 'Waybill created; label or pickup needs follow-up. Do not recreate the shipment.' : null,
   }, $push: { timeline: { status: order.status, timestamp: new Date(), note: 'Shiprocket waybill confirmed; provider pickup and label status recorded' } }, $inc: { __v: 1 } });
   return ok(res, await Order.findById(order._id).select('shiprocket fulfillment deliveryType'), 'Shiprocket waybill created; check pickup and label status');
+});
+
+/**
+ * Self Delivery: the seller hands the parcel to a courier they arranged and pay for themselves.
+ *
+ * Every tracking field is required (no untracked local couriers). One atomic update claims the order
+ * for this courier only if no other delivery method, rider or Shiprocket booking exists, so a double
+ * tap or a race with "Offer to riders" leaves exactly one provider. A repeat of the same hand-off is a
+ * no-op; a different one is refused. After this the seller reports out-for-delivery and delivered
+ * through the normal status endpoint (EXTERNAL_COURIER_VENDOR_TRANSITIONS, forward only).
+ */
+export const dispatchExternalCourier = asyncHandler(async (req, res) => {
+  const { seller, order } = await sellerAndOrder(req);
+  if (orderDeliveryMethod(order) !== DELIVERY_METHOD.SELF_DELIVERY) throw httpError(409, 'Only Self Delivery orders can be sent with your own courier.');
+  const input = parseExternalShipmentInput(req.body, { orderPlacedAt: order.createdAt });
+  if (order.deliveryType === 'external' && order.externalShipment) {
+    const same = order.externalShipment.awb === input.awb && order.externalShipment.courierName.toLowerCase() === input.courierName.toLowerCase();
+    if (same) return ok(res, { status: order.status, deliveryType: order.deliveryType, externalShipment: order.externalShipment }, 'Already handed to this courier');
+    throw httpError(409, 'This order was already handed to a courier. Contact support to correct the tracking details.');
+  }
+  if (order.delivery?.mode === 'same_day') throw httpError(409, 'Same-Day delivery was promised by Bulkimart riders; choose a Bulkimart rider.');
+  // Self Delivery is prepaid only; a COD order here would be an inconsistency, never something to ship.
+  if (order.paymentMethod === 'cod') throw httpError(409, 'Self Delivery orders must be prepaid. Contact support.');
+  if (order.vendorDecision?.status !== 'accepted' || order.status !== ORDER_STATUS.PREPARING) throw httpError(409, 'Accept and prepare the order before handing it to a courier.');
+  if (order.fulfillment?.assignmentPolicy && !order.fulfillment?.readyAt) throw httpError(409, 'Mark the parcel ready for pickup first.');
+  if (!await paymentIsReady(order)) throw httpError(409, 'Payment is not verified');
+  if (order.fulfillment?.method || order.deliveryId || order.deliveryPartnerId || order.shiprocket?.orderId || order.shiprocket?.shipmentId
+    || activeShipmentStates.includes(order.shiprocket?.status)) {
+    throw httpError(409, 'A delivery method has already been chosen for this order. Refresh the order.');
+  }
+  // The same tracking number on another order means a typo or a reused label; refuse it.
+  const reused = await Order.find({ _id: { $ne: order._id }, 'externalShipment.awb': input.awb }).select('externalShipment.courierName').lean();
+  if (reused.some(row => row.externalShipment?.courierName?.toLowerCase() === input.courierName.toLowerCase())) {
+    throw httpError(409, 'This tracking ID is already used on another order. Check the courier receipt.');
+  }
+  const now = new Date();
+  const updated = await Order.findOneAndUpdate({
+    _id: order._id, status: ORDER_STATUS.PREPARING, 'vendorDecision.status': 'accepted', __v: order.__v,
+    'fulfillment.method': null, deliveryId: null, deliveryPartnerId: null, externalShipment: null,
+    'shiprocket.orderId': null, 'shiprocket.shipmentId': null, 'shiprocket.status': { $nin: activeShipmentStates },
+  }, {
+    $set: {
+      status: ORDER_STATUS.DISPATCHED, deliveryType: 'external',
+      'fulfillment.method': 'external_courier', 'fulfillment.selectedBy': req.fulfillmentActor || 'seller', 'fulfillment.selectedAt': now,
+      'fulfillment.chargeStatus': 'not_applicable', needsManualAssignment: false,
+      // Who the customer's delivery charge goes to is fixed now, from the switch as it stands at hand-off.
+      externalShipment: { ...input, status: 'dispatched', enteredBy: seller._id, deliveryFeePayee: selfDeliveryFeeCreditEnabled() ? 'seller' : 'platform',
+        events: [{ status: 'dispatched', at: now, by: 'seller' }] },
+    },
+    $push: { timeline: { status: ORDER_STATUS.DISPATCHED, timestamp: now, note: `Handed to ${input.courierName} · ${input.awb}` } },
+    $inc: { __v: 1 },
+  }, { returnDocument: 'after', runValidators: true });
+  if (!updated) throw httpError(409, 'The order changed or another delivery method was chosen. Refresh the order.');
+  import('../socket/rooms.js').then(({ emitToUser }) => emitToUser(updated.userId, 'order_status_updated', { orderId: updated._id, status: updated.status, timeline: updated.timeline })).catch(() => {});
+  notifyUser(updated.userId, {
+    event: NOTIFICATION_EVENT.ORDER_STATUS_UPDATED, title: 'Your order is on its way',
+    message: `Order ${updated.orderNo} was handed to ${input.courierName} (tracking ${input.awb}).`,
+    metadata: { orderId: updated._id }, route: '/orders',
+  }).catch(e => console.error('[NOTIFICATION] notifyUser (external courier) failed:', e.message));
+  return ok(res, { status: updated.status, deliveryType: updated.deliveryType, externalShipment: updated.externalShipment }, 'Handed to your courier. Update the status as the courier delivers.');
+});
+
+/** Self Delivery after hand-off: correct the tracking (with a reason) or report a failed delivery attempt. */
+export const updateExternalCourier = asyncHandler(async (req, res) => {
+  const { order } = await sellerAndOrder(req);
+  const saved = await sellerUpdateExternalShipment({ order, body: req.body || {} });
+  return ok(res, { status: saved.status, externalShipment: saved.externalShipment }, req.body?.action === 'delivery_failed' ? 'Failed delivery recorded' : 'Tracking details updated');
 });
 
 export const shiprocketWebhook = asyncHandler(async (req, res) => {

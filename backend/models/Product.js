@@ -1,5 +1,5 @@
 import mongoose from "mongoose";
-import { CHANNELS, SAME_DAY_MAX_PROCESSING_MINUTES } from "../constants/enums.js";
+import { CHANNELS, SAME_DAY_MAX_PROCESSING_MINUTES, DELIVERY_METHODS } from "../constants/enums.js";
 
 const { Schema, model } = mongoose;
 const ObjectId = Schema.Types.ObjectId;
@@ -224,6 +224,23 @@ const productSchema = new Schema(
     // Same-Day fulfilment capability. Absent = not offered.
     sameDay: { type: productSameDaySchema, default: undefined },
 
+    // How this Shop All product is delivered (services/deliveryMethod.service.js). Physical
+    // e-commerce only; absent = Easy Ship, which is every product listed before this existed.
+    deliveryMethod: { type: String, enum: DELIVERY_METHODS },
+    /**
+     * FBB conversion record (services/warehouse.service.js::convertProductToFbb). sellerHeldAtConversion
+     * keeps what the seller's own shop stock was, for the record only: from conversion on, variant stock
+     * mirrors verified warehouse stock, and nothing restores units into it except warehouse operations.
+     */
+    fbb: {
+      type: new Schema({
+        convertedAt: Date, convertedBy: { type: ObjectId, ref: 'User' }, chargeConfigVersionAccepted: Number,
+        fromMethod: String,
+        sellerHeldAtConversion: [{ _id: false, variantId: ObjectId, variantName: String, qty: Number }],
+      }, { _id: false }),
+      default: undefined,
+    },
+
     /**
    * Legacy Quick Commerce opt-in. Shop All overrides and custom product windows
      * are stored in returnSettings; absent Shop All overrides retain category defaults.
@@ -348,6 +365,9 @@ productSchema.pre("validate", async function () {
     }
   } else if (this.digital) {
     this.invalidate("digital", "Digital metadata is only valid for digital products");
+  }
+  if (this.deliveryMethod && (this.type !== "ecommerce" || this.fulfillmentType === "digital")) {
+    this.invalidate("deliveryMethod", "Delivery methods apply only to physical E-Commerce products");
   }
   if (this.isModified("name") && !this.slug) {
     this.slug = this.name.toLowerCase().replace(/\s+/g, "-").replace(/[^a-z0-9-]/g, "");

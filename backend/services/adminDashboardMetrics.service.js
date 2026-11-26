@@ -162,7 +162,7 @@ export function addPostedRevenue(metric, entry) {
 const orderProjection = { _id:1, userId:1, groupRef:1, paymentMethod:1, paymentId:1, status:1, 'pricing.totalAmount':1,
   'codFinance.status':1,'codFinance.source':1,'codFinance.verifiedPaise':1,'codFinance.events.action':1,'codFinance.events.actorId':1,'codFinance.events.amountPaise':1,'codFinance.events.reference':1,
   'financialSnapshot.version':1,'financialSnapshot.expectedPaise':1,financialPosting:1,'items._id':1 };
-const otherPurposes = ['isWalletTopup','advertising','parcelDeliveryId','serviceApplicationId','quickFeeSnapshotId','subscriptionId','shgSubscriptionId','premiumMembershipId','sellerPromotionId','packagingOrderId'];
+const otherPurposes = ['isWalletTopup','advertising','parcelDeliveryId','serviceApplicationId','quickFeeSnapshotId','subscriptionId','shgSubscriptionId','premiumMembershipId','sellerPromotionId','packagingOrderId','fbbObligationSellerId'];
 
 export async function getAdminFinancialMetrics() {
   const session = await mongoose.startSession();

@@ -14,6 +14,7 @@ import { riderPayout, rateSnapshotFor, payoutModeOf } from './riderPay.service.j
 import { canTakeAnother } from './riderCapacity.service.js';
 import { licenceExpired } from './riderEligibility.service.js';
 import { notifyUser, notifySeller, notifyRider, notifyAllAdmins, NOTIFICATION_EVENT } from './notification.service.js';
+import { originSeller } from './fulfilmentOrigin.service.js';
 import {
   OFFER_ATTEMPT_STATUS, RETURN_STATUS, RETURN_PICKUP_STATUS, PAYOUT_MODE,
 } from '../constants/enums.js';
@@ -113,8 +114,8 @@ export const broadcastReturnPickupToRiders = async (returnId, attempt = 1) => {
   if (![RETURN_STATUS.APPROVED, RETURN_STATUS.AWAITING_RETURN].includes(ret.status)) return;
   if (ret.pickup?.status !== RETURN_PICKUP_STATUS.NOT_ASSIGNED) return; // already assigned/cancelled since this attempt was scheduled
 
-  const order = await Order.findById(ret.orderId).select('shippingAddress userId').lean();
-  const seller = await Seller.findById(ret.sellerId).select('storeDetails businessName').lean();
+  const order = await Order.findById(ret.orderId).select('shippingAddress userId origin').lean();
+  const seller = await originSeller(order, await Seller.findById(ret.sellerId).select('storeDetails businessName').lean());
   if (!Number.isFinite(distanceKm(order?.shippingAddress, seller?.storeDetails))) return;
 
   const pickupPoint = { lat: order.shippingAddress.lat, lng: order.shippingAddress.lng };
@@ -235,10 +236,8 @@ export const returnPickupOptions = async ({ returnId, sellerId }) => {
   if (!mongoose.Types.ObjectId.isValid(returnId)) throw httpError(400, 'Invalid return id');
   const ret = await Return.findOne({ _id: returnId, sellerId });
   if (!ret) throw httpError(404, 'Return not found');
-  const [order, seller] = await Promise.all([
-    Order.findById(ret.orderId).select('shippingAddress').lean(),
-    Seller.findById(sellerId).select('storeDetails businessName').lean(),
-  ]);
+  const order = await Order.findById(ret.orderId).select('shippingAddress origin').lean();
+  const seller = await originSeller(order, await Seller.findById(sellerId).select('storeDetails businessName').lean());
   const searching = ret.pickupMethod === 'MANUAL' && ret.pickup?.status === RETURN_PICKUP_STATUS.NOT_ASSIGNED;
   const stateReason = ![RETURN_STATUS.APPROVED, RETURN_STATUS.AWAITING_RETURN].includes(ret.status) ? 'Approve this return before arranging pickup.'
     : ret.pickup?.partnerId ? 'A delivery partner is already assigned to this pickup.'
@@ -294,7 +293,7 @@ export const arrangeReturnPickup = async ({ returnId, sellerId, riderId }) => {
     throw httpError(400, `This return's pickup is already ${ret.pickup.status.toLowerCase()}`, { code: 'PICKUP_ALREADY_ASSIGNED' });
   }
   const order = await Order.findById(ret.orderId).lean();
-  const seller = await Seller.findById(sellerId).lean();
+  const seller = await originSeller(order, await Seller.findById(sellerId).lean());
   const item = order?.items?.find(row => String(row._id) === String(ret.orderItemId));
   if (!item || String(item.sellerId) !== String(sellerId)) throw httpError(403, 'Return item ownership mismatch');
   const blocker = manualPickupBlocker(order, seller);
@@ -380,8 +379,8 @@ const acceptReturnPickupCore = async ({ returnId, partnerId, token }) => {
       // Shown on the seller's and customer's return timeline.
       await Return.updateOne({ _id: claimed._id }, { $push: { history: { toStatus: claimed.status, changedByRole: 'delivery', comment: 'Delivery partner accepted the pickup' } } }, { session });
 
-      const order = await Order.findById(claimed.orderId).select('shippingAddress userId').session(session).lean();
-      const seller = await Seller.findById(claimed.sellerId).select('storeDetails businessName').session(session).lean();
+      const order = await Order.findById(claimed.orderId).select('shippingAddress userId origin').session(session).lean();
+      const seller = await originSeller(order, await Seller.findById(claimed.sellerId).select('storeDetails businessName').session(session).lean(), session);
       const km = distanceKm(order?.shippingAddress, seller?.storeDetails);
 
       [delivery] = await Delivery.create([{

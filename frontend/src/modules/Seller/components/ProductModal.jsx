@@ -12,6 +12,7 @@ import SellerContext from '../context/SellerContext';
 import { apiUrl } from '../../../utils/api';
 import { applyFieldDefaults, CategoryFieldInput, CategoryUploadInput, useCategoryFields, validateCategoryDetails } from './CategoryDetailsFields';
 import ProductVideosField from './ProductVideosField';
+import DeliveryMethodField from './DeliveryMethodField';
 import './ProductModal.css';
 
 /**
@@ -870,6 +871,18 @@ export const ProductModal = () => {
                         windowDays={catReturnPolicy?.eligible ? Math.min(Number(newProductForm.returnWindowDays) || catReturnPolicy.returnWindowDays, catReturnPolicy.returnWindowDays) : null} />
                     )}
                   </div>
+                )}
+
+                {/* Delivery method — physical Shop All products only (never Quick, e-books or Wholesale-only). */}
+                {!isDigital && !wholesaleProductEditor && activeChannel === 'ecommerce' && (
+                  <DeliveryMethodField
+                    value={newProductForm.deliveryMethod}
+                    savedMethod={isEditing ? (editingProduct?.deliveryMethod || 'easy_ship') : undefined}
+                    disabled={savingProduct}
+                    onChange={(deliveryMethod, extra = {}) => setNewProductForm((prev) => ({ ...prev, deliveryMethod, ...extra }))}
+                    productId={isEditing ? editingProduct?._id : undefined}
+                    onConverted={() => { sellerCtx.fetchMyProducts?.(); setShowAddProductModal(false); setEditingProductId(null); }}
+                  />
                 )}
 
                 {/* Same-Day, only on the Ecommerce/Shop All leg. */}

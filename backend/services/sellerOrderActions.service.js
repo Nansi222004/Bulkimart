@@ -1,15 +1,17 @@
-import { vendorTransitions } from '../constants/enums.js';
+import { vendorTransitions, COURIER_DELIVERY_TYPES } from '../constants/enums.js';
 
 export const shipmentLocked = order => Boolean(order.shiprocket?.orderId || order.shiprocket?.shipmentId
   || ['creating', 'assigning', 'reconciliation_required'].includes(order.shiprocket?.status));
 
 export function sellerOrderActions(order, paymentReady = true) {
+  // Fulfilled by Bulkimart: view only for the seller.
+  if (order.fulfillmentOwner === 'bulkimart') return [];
   if (['creating', 'assigning', 'reconciliation_required'].includes(order.shiprocket?.status)) return [];
   const actions = [];
   const transitions = vendorTransitions(order.deliveryType)[order.status] || [];
   const locked = shipmentLocked(order) || Boolean(order.deliveryId || order.deliveryPartnerId);
   if (!paymentReady) return [];
-  if (order.status === 'dispatched' && order.deliveryType !== 'shiprocket' && !order.deliveryPartnerId && !order.deliveryId) {
+  if (order.status === 'dispatched' && !COURIER_DELIVERY_TYPES.includes(order.deliveryType) && !order.deliveryPartnerId && !order.deliveryId) {
     actions.push({ setup: true, label: 'Reassign delivery partner' });
   }
   if (transitions.includes('confirmed')) actions.push({ to: 'confirmed', label: 'Accept order' });
@@ -19,7 +21,7 @@ export function sellerOrderActions(order, paymentReady = true) {
     if (order.deliveryType === 'shiprocket' && order.shiprocket?.awb && order.shiprocket?.courier) actions.push({ to: 'dispatched', label: 'Confirm courier hand-off' });
     else if (!order.fulfillment?.readyAt && !order.fulfillment?.method) actions.push({ to: 'ready_for_pickup', label: 'Ready for pickup' });
     else if (!order.fulfillment?.method) actions.push({ setup: true, label: 'Choose delivery' });
-    else if (order.deliveryType !== 'shiprocket') actions.push({ to: 'dispatched', label: 'Offer to Bulkimart riders' });
+    else if (!COURIER_DELIVERY_TYPES.includes(order.deliveryType)) actions.push({ to: 'dispatched', label: 'Offer to Bulkimart riders' });
     else if (order.shiprocket?.awb && order.shiprocket?.courier) actions.push({ to: 'dispatched', label: 'Confirm courier hand-off' });
   }
   // Existing courier reporting policy remains; internal delivery is rider-only.

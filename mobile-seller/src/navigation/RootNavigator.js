@@ -13,6 +13,8 @@ import CreateTicketScreen from '../screens/support/CreateTicketScreen';
 import TicketDetailScreen from '../screens/support/TicketDetailScreen';
 import SupportChatScreen from '../screens/support/SupportChatScreen';
 import PrivacyPolicyScreen from '../screens/profile/PrivacyPolicyScreen';
+import TrainingScreen from '../screens/profile/TrainingScreen';
+import TrainingPlayerScreen from '../screens/profile/TrainingPlayerScreen';
 import BusinessSettingsScreen from '../screens/profile/BusinessSettingsScreen';
 import KycDetailsScreen from '../screens/profile/KycDetailsScreen';
 import PushManager from '../components/PushManager';
@@ -35,6 +37,7 @@ import ProductDetailScreen from '../screens/products/ProductDetailScreen';
 import ProductFormScreen from '../screens/products/ProductFormScreen';
 import BulkUploadScreen from '../screens/products/BulkUploadScreen';
 import StockScreen from '../screens/inventory/StockScreen';
+import FbbScreen from '../screens/fbb/FbbScreen';
 import FulfillmentScreen from '../screens/orders/FulfillmentScreen';
 import TrackOrdersScreen from '../screens/orders/TrackOrdersScreen';
 import InvoicesScreen from '../screens/invoices/InvoicesScreen';
@@ -112,6 +115,7 @@ export default function RootNavigator() {
       <Stack.Screen name="ProductForm" component={ProductFormScreen} options={{ title: 'Product' }} />
       <Stack.Screen name="BulkUpload" component={BulkUploadScreen} options={{ title: 'Bulk upload' }} />
       <Stack.Screen name="Stock" component={StockScreen} options={{ title: 'Stock' }} />
+      <Stack.Screen name="Fbb" component={FbbScreen} options={{ title: 'Fulfilled by Bulkimart' }} />
       <Stack.Screen name="Fulfillment" component={FulfillmentScreen} options={{ title: 'Choose delivery method' }} />
       <Stack.Screen name="TrackOrders" component={TrackOrdersScreen} options={{ title: 'Track orders' }} />
       <Stack.Screen name="Invoices" component={InvoicesScreen} options={{ title: 'Invoices' }} />
@@ -124,6 +128,8 @@ export default function RootNavigator() {
       <Stack.Screen name="TicketDetail" component={TicketDetailScreen} options={{ title: 'Ticket' }} />
       <Stack.Screen name="SupportChat" component={SupportChatScreen} options={{ title: 'Chat with Support' }} />
       <Stack.Screen name="PrivacyPolicy" component={PrivacyPolicyScreen} options={{ title: 'Privacy policy' }} />
+      <Stack.Screen name="Training" component={TrainingScreen} options={{ title: 'Training videos' }} />
+      <Stack.Screen name="TrainingPlayer" component={TrainingPlayerScreen} options={({ route }) => ({ title: route.params?.video?.title || 'Training video' })} />
       <Stack.Screen name="BusinessSettings" component={BusinessSettingsScreen} options={{ title: 'Business settings' }} />
       <Stack.Screen name="KycDetails" component={KycDetailsScreen} options={{ title: 'KYC & payout details' }} />
       <Stack.Screen name="ProductFaqs" component={ProductFaqsScreen} options={{ title: 'Product questions' }} />

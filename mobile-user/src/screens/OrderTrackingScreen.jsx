@@ -22,6 +22,7 @@ import { Text, TextInput, money } from '../components/ui';
 import { ChevronLeft } from '../components/icons';
 import DeliveryMap from '../components/DeliveryMap';
 import DeliveryPartnerRating from '../components/DeliveryPartnerRating';
+import ExternalNotReceived from '../components/ExternalNotReceived';
 import OrderInvoices from '../components/OrderInvoices';
 import AttachmentUploader from '../components/AttachmentUploader';
 import SelectField from '../components/SelectField';
@@ -295,6 +296,10 @@ function TrackingBody({ selectedOrder, close, theme, insets }) {
   const currentIndex = statusSequence.indexOf(currentStatus);
   const liveRider = hasLiveRider(track, selectedOrder);
   const byCourier = goesByCourier(track, selectedOrder);
+  // Courier, tracking number and link: the seller's own courier (Self Delivery) or the Shiprocket booking.
+  const courierInfo = track?.externalShipment
+    ? { courier: track.externalShipment.courierName, awb: track.externalShipment.awb, trackingUrl: track.externalShipment.trackingUrl }
+    : track?.shiprocket;
   const deliveryLabel = deliveryLabelFor(track) || deliveryLabelFor(selectedOrder);
   const a = selectedOrder.shippingAddress || {};
   const addrText = `${a.line1 || a.address || ''}${a.line2 ? ', ' + a.line2 : ''}, ${a.city || ''} - ${a.pincode || ''}`;
@@ -337,13 +342,22 @@ function TrackingBody({ selectedOrder, close, theme, insets }) {
         </View> : null}
       </View>}
 
-      {byCourier && track?.shiprocket?.awb ? <View style={[styles.courier, { backgroundColor: theme.primaryLight, borderColor: primary }]}>
-        <Text style={{ fontSize: 11, fontWeight: '800', color: primary, letterSpacing: 0.5 }}>ON ITS WAY WITH {String(track.shiprocket.courier || '').toUpperCase()}</Text>
-        <Text style={{ fontSize: 20, fontWeight: '900', letterSpacing: 1.5, marginTop: 6, marginBottom: 4 }} selectable>{track.shiprocket.awb}</Text>
-        <Text style={{ fontSize: 11, color: '#94a3b8', fontWeight: '600' }}>Quote this tracking number to {track.shiprocket.courier}</Text>
-        {track.shiprocket.trackingUrl ? <Pressable onPress={() => Linking.openURL(track.shiprocket.trackingUrl).catch(() => {})} style={{ marginTop: 10 }}><Text style={{ fontSize: 12, fontWeight: '800', color: primary, textDecorationLine: 'underline' }}>Track on the courier's site</Text></Pressable> : null}
+      {byCourier && courierInfo?.awb ? <View style={[styles.courier, { backgroundColor: theme.primaryLight, borderColor: primary }]}>
+        <Text style={{ fontSize: 11, fontWeight: '800', color: primary, letterSpacing: 0.5 }}>ON ITS WAY WITH {String(courierInfo.courier || '').toUpperCase()}</Text>
+        <Text style={{ fontSize: 20, fontWeight: '900', letterSpacing: 1.5, marginTop: 6, marginBottom: 4 }} selectable>{courierInfo.awb}</Text>
+        <Text style={{ fontSize: 11, color: '#94a3b8', fontWeight: '600' }}>Quote this tracking number to {courierInfo.courier}</Text>
+        {courierInfo.trackingUrl ? <Pressable onPress={() => Linking.openURL(courierInfo.trackingUrl).catch(() => {})} style={{ marginTop: 10 }}><Text style={{ fontSize: 12, fontWeight: '800', color: primary, textDecorationLine: 'underline' }}>Track on the courier's site</Text></Pressable> : null}
       </View> : null}
-      {byCourier && !track?.shiprocket?.awb && ['confirmed', 'preparing'].includes(currentStatus) && <View style={styles.packing}><Text style={{ fontSize: 12, color: '#94a3b8', fontWeight: '600' }}>📦 The store is packing your order. A tracking number will appear here once it is handed to the courier.</Text></View>}
+      {/* Fulfilled by Bulkimart: the warehouse stages before the parcel leaves. */}
+      {track?.fbb?.stages?.length > 0 && !track.fbb.stages[track.fbb.stages.length - 1].done ? <View style={styles.packing} accessibilityLabel="Bulkimart warehouse progress">
+        <Text style={{ fontSize: 12, fontWeight: '800', marginBottom: 6 }}>Packed and shipped by Bulkimart</Text>
+        {track.fbb.stages.map(stage => <Text key={stage.key} style={{ fontSize: 12, fontWeight: '600', color: stage.done ? '#0f172a' : '#94a3b8', paddingVertical: 2 }}>
+          {stage.done ? '✓ ' : '○ '}{stage.label}{stage.at ? ` · ${new Date(stage.at).toLocaleString('en-IN', { day: 'numeric', month: 'short', hour: 'numeric', minute: '2-digit' })}` : ''}
+        </Text>)}
+      </View> : null}
+      {track?.externalShipment ? <ExternalNotReceived orderId={orderId} shipment={track.externalShipment} color={primary}
+        onReported={() => setTrack(previous => ({ ...previous, externalShipment: { ...previous.externalShipment, reportStatus: 'open', reportableUntil: null } }))} /> : null}
+      {byCourier && !courierInfo?.awb && ['confirmed', 'preparing'].includes(currentStatus) && <View style={styles.packing}><Text style={{ fontSize: 12, color: '#94a3b8', fontWeight: '600' }}>📦 The store is packing your order. A tracking number will appear here once it is handed to the courier.</Text></View>}
 
       {currentStatus === 'out_for_delivery' && activeRider && String(activeRider.orderId) === String(selectedOrder._id) && <View style={[styles.riderCard, { backgroundColor: theme.primaryLight, borderColor: primary }]}>
         <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12, gap: 8 }}>

@@ -8,10 +8,14 @@ const prettyStatus = (s) => (s || '').replace(/_/g, ' ').replace(/\b\w/g, (c) =>
 const fmtDate = (d) => (d ? new Date(d).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' }) : '—');
 const money = (n) => `₹${Number(n || 0).toLocaleString('en-IN', { minimumFractionDigits: 2 })}`;
 
+const DELIVERY_METHOD_LABELS = { easy_ship: 'Easy Ship', self_delivery: 'Self Delivery', fbb: 'Fulfilled by Bulkimart' };
+
 export const VendorOrdersTab = ({ defaultMode = 'active' }) => {
   const [mode, setMode] = useUrlState('view', defaultMode);
   const lastDefaultMode = useRef(defaultMode); // 'active' | 'history'
   const [statusFilter, setStatusFilter] = useState('all');
+  // Easy Ship / Self Delivery / FBB (Easy Ship includes every Shop All order placed before methods existed).
+  const [methodFilter, setMethodFilter] = useState('all');
   const [search, setSearch] = useState('');
   const [orders, setOrders] = useState([]);
   const [loading, setLoading] = useState(false);
@@ -25,13 +29,14 @@ export const VendorOrdersTab = ({ defaultMode = 'active' }) => {
     Authorization: 'Bearer ' + (localStorage.getItem('adminToken') || ''),
   });
 
-  const fetchOrders = useCallback(async (page = 1, currentMode = mode, currentStatus = statusFilter, currentSearch = search) => {
+  const fetchOrders = useCallback(async (page = 1, currentMode = mode, currentStatus = statusFilter, currentSearch = search, currentMethod = methodFilter) => {
     setLoading(true);
     setError('');
     try {
       let query = `/api/admin/vendor-orders?mode=${currentMode}&page=${page}&limit=15`;
       if (currentStatus && currentStatus !== 'all') query += `&status=${encodeURIComponent(currentStatus)}`;
       if (currentSearch && currentSearch.trim()) query += `&search=${encodeURIComponent(currentSearch.trim())}`;
+      if (currentMethod && currentMethod !== 'all') query += `&deliveryMethod=${encodeURIComponent(currentMethod)}`;
 
       const res = await fetch(apiUrl(query), { headers: getAuthHeader() });
       const body = await res.json();
@@ -54,7 +59,7 @@ export const VendorOrdersTab = ({ defaultMode = 'active' }) => {
     } finally {
       setLoading(false);
     }
-  }, [mode, statusFilter, search]);
+  }, [mode, statusFilter, search, methodFilter]);
 
   useEffect(() => {
     // Only a different sidebar entry changes it; on first load the view in the URL wins.
@@ -66,10 +71,10 @@ export const VendorOrdersTab = ({ defaultMode = 'active' }) => {
 
   useEffect(() => {
     const timer = setTimeout(() => {
-      fetchOrders(1, mode, statusFilter, search);
+      fetchOrders(1, mode, statusFilter, search, methodFilter);
     }, search ? 300 : 0);
     return () => clearTimeout(timer);
-  }, [mode, statusFilter, search, fetchOrders]);
+  }, [mode, statusFilter, search, methodFilter, fetchOrders]);
 
   useEffect(() => {
     if (!selectedOrder?._id) { setFinancialAudit(null); return undefined; }
@@ -166,6 +171,11 @@ export const VendorOrdersTab = ({ defaultMode = 'active' }) => {
             fontSize: '14px', outline: 'none'
           }}
         />
+        <select aria-label="Delivery method" value={methodFilter} onChange={(e) => setMethodFilter(e.target.value)}
+          style={{ padding: '10px 12px', border: '1.5px solid #cbd5e1', borderRadius: '10px', fontSize: '13px', fontWeight: '700', color: '#475569' }}>
+          <option value="all">All delivery methods</option>
+          {Object.entries(DELIVERY_METHOD_LABELS).map(([value, label]) => <option key={value} value={value}>{label}</option>)}
+        </select>
         <div style={{ display: 'flex', gap: '8px' }}>
           {currentOptions.map((opt) => (
             <button
@@ -227,6 +237,7 @@ export const VendorOrdersTab = ({ defaultMode = 'active' }) => {
                   <th style={{ padding: '14px 16px' }}>Items</th>
                   <th style={{ padding: '14px 16px' }}>Total Amount</th>
                   <th style={{ padding: '14px 16px' }}>Payment</th>
+                  <th style={{ padding: '14px 16px' }}>Delivery</th>
                   <th style={{ padding: '14px 16px' }}>Date</th>
                   <th style={{ padding: '14px 16px' }}>Status</th>
                   <th style={{ padding: '14px 16px', textAlign: 'right' }}>Actions</th>
@@ -263,6 +274,9 @@ export const VendorOrdersTab = ({ defaultMode = 'active' }) => {
                       </td>
                       <td style={{ padding: '14px 16px', color: '#475569', fontSize: '12.5px' }}>
                         {prettyStatus(o.paymentMethod)} · {prettyStatus(o.paymentStatus)}
+                      </td>
+                      <td style={{ padding: '14px 16px', color: '#475569', fontSize: '12.5px' }}>
+                        {o.deliveryMethod ? DELIVERY_METHOD_LABELS[o.deliveryMethod] || prettyStatus(o.deliveryMethod) : 'Quick Commerce'}
                       </td>
                       <td style={{ padding: '14px 16px', color: '#64748b', fontSize: '12px' }}>
                         {fmtDate(o.createdAt)}
@@ -377,10 +391,14 @@ export const VendorOrdersTab = ({ defaultMode = 'active' }) => {
                 <div style={{ fontSize: 12.5, lineHeight: 1.8, marginTop: 4 }}>
                   <div>Channel: {selectedOrder.channel === 'grocery' ? 'Quick Commerce' : 'E-Commerce'}</div>
                   <div>Vendor decision: {prettyStatus(selectedOrder.vendorDecision?.status || 'pending')}{selectedOrder.vendorDecision?.reason ? ` — ${selectedOrder.vendorDecision.reason}` : ''}</div>
+                  <div>Delivery method: {selectedOrder.deliveryMethod ? DELIVERY_METHOD_LABELS[selectedOrder.deliveryMethod] || prettyStatus(selectedOrder.deliveryMethod) : 'Not applicable'}</div>
                   <div>Method: {prettyStatus(selectedOrder.fulfillment?.method || selectedOrder.deliveryMode || 'not selected')}</div>
+                  {selectedOrder.shipment?.shippingProvider && <div>Shipping provider: {prettyStatus(selectedOrder.shipment.shippingProvider)}</div>}
+                  {/^https?:\/\//i.test(selectedOrder.shipment?.trackingUrl || '') && <div>Tracking URL: <a href={selectedOrder.shipment.trackingUrl} target="_blank" rel="noopener noreferrer">{selectedOrder.shipment.trackingUrl}</a></div>}
+                  <div>Dispatched: {selectedOrder.shipment?.dispatchDate ? fmtDate(selectedOrder.shipment.dispatchDate) : '—'} · Delivered: {selectedOrder.shipment?.deliveredDate ? fmtDate(selectedOrder.shipment.deliveredDate) : '—'}</div>
                   <div>Rider: {selectedOrder.deliveryPartnerId || 'Not assigned'}</div>
-                  <div>Provider: {selectedOrder.shiprocket?.courier || '—'}</div>
-                  <div>AWB: {selectedOrder.shiprocket?.awb || '—'}</div>
+                  <div>Provider: {selectedOrder.shipment?.courierName || selectedOrder.shiprocket?.courier || '—'}</div>
+                  <div>AWB: {selectedOrder.shipment?.awbNumber || selectedOrder.shiprocket?.awb || '—'}</div>
                   <div>Tracking status: {selectedOrder.shiprocket?.status || '—'}</div>
                   {selectedOrder.shiprocket?.lastError && <div style={{ color: '#b91c1c' }}>Shipment failure: {selectedOrder.shiprocket.lastError}</div>}
                   {selectedOrder.needsManualAssignment && <div style={{ color: '#b45309' }}>Manual assignment required</div>}

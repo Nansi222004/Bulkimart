@@ -1,6 +1,7 @@
 import { verifyReturnCashEvidence, verifyRefundedFunding } from './refundFunding.service.js';
 import { cumulativePaise, codCashDuePaise, codSettlementTargetPaise } from '../utils/financeMoney.js';
 import CourierCodRemittance from '../models/CourierCodRemittance.js';
+import CourierCharge from '../models/CourierCharge.js';
 import mongoose from 'mongoose';
 import crypto from 'node:crypto';
 import Order from '../models/Order.js';
@@ -16,6 +17,7 @@ import { financialTransaction, requireFinanceOperation } from './financeSafety.s
 import { moneyPaise, sameDayIncentiveOf } from './vendorCommission.service.js';
 import { httpError } from '../utils/response.js';
 import { returnHoldOpen } from './returnHold.service.js';
+import { externalDeliveryHoldOpen } from './externalCourier.service.js';
 
 const evidence = (input) => {
   const reference = String(input.reference || '').trim();
@@ -59,14 +61,14 @@ const incentiveSeller = snapshot => {
 };
 // The incentive is paid for fulfilment and is never refunded with an item, so
 // it leaves the hold with the order rather than with any one line.
-const releaseSameDayIncentive = async (order, actorId, session) => {
-  const entry = await SellerLedgerEntry.findOne({ orderId: order._id, account: 'seller_payable', type: 'same_day_incentive', bucket: 'held', direction: 'credit' }).session(session);
+const releaseSameDayIncentive = async (order, actorId, session, type = 'same_day_incentive', label = 'Same-day incentive') => {
+  const entry = await SellerLedgerEntry.findOne({ orderId: order._id, account: 'seller_payable', type, bucket: 'held', direction: 'credit' }).session(session);
   if (!entry || await SellerLedgerEntry.exists({ idempotencyKey: `FINANCE:${entry._id}:RELEASE:eligible` }).session(session)) return false;
   await Seller.updateOne({ _id: entry.sellerId }, { $inc: { financialLedgerVersion: 1 } }, { session });
   for (const [bucket, direction] of [['held', 'debit'], ['eligible', 'credit']]) await postLedgerEntry({
     idempotencyKey: `FINANCE:${entry._id}:RELEASE:${bucket}`, sellerId: entry.sellerId, orderId: order._id, account: 'seller_payable',
-    type: 'adjustment', direction, bucket, amount: entry.amount, description: `Same-day incentive released ${order.orderNo}`,
-    postedBy: actorId, postedByRole: actorId ? 'admin' : 'system', metadata: { source: 'order-finance-v2', originalEntryId: String(entry._id), kind: 'same_day_incentive' },
+    type: 'adjustment', direction, bucket, amount: entry.amount, description: `${label} released ${order.orderNo}`,
+    postedBy: actorId, postedByRole: actorId ? 'admin' : 'system', metadata: { source: 'order-finance-v2', originalEntryId: String(entry._id), kind: type },
   }, { session });
   return true;
 };
@@ -295,6 +297,9 @@ export const postOrderFinance = async (orderId, actorId, review) => {
     const order = await lockOrder(orderId, session, review && { ...review, actorId, action: 'postOrderFinance' });
     if (order.financialPosting) return { status: order.financialPosting, alreadyProcessed: true };
     if (order.status !== 'delivered') throw httpError(409, 'Only completed deliveries can accrue merchandise earnings');
+    // A delivery only the seller reported (own courier) posts after the customer's confirmation hold, and never
+    // while the customer has reported it as not received (externalCourier.service.js).
+    if (externalDeliveryHoldOpen(order)) throw httpError(409, 'Seller-reported delivery is still in its confirmation hold', { code: 'EXTERNAL_DELIVERY_HOLD' });
     const snapshot = snapshotOf(order);
     if (snapshot.state === 'held_discount_policy') throw httpError(409, 'Discount funding policy is not approved; no seller deduction may be assumed');
     if (snapshot.state !== 'configured') throw httpError(409, 'Commission policy was missing at checkout; historical recalculation is prohibited');
@@ -319,9 +324,21 @@ export const postOrderFinance = async (orderId, actorId, review) => {
       }
     }
     const { deliveryPaise, incentivePaise } = deliverySplit(order, snapshot);
-    if (deliveryPaise > 0) await postLedgerEntry({ idempotencyKey: `FINANCE:${order._id}:CUSTOMER_DELIVERY`, orderId: order._id,
-      account: 'customer_delivery', type: 'customer_delivery', direction: 'credit', bucket: 'held', amount: deliveryPaise / 100,
-      description: `Customer delivery charge ${order.orderNo}`, metadata: { source: 'order-finance-v2', snapshotId: snapshot.snapshotId } }, { session });
+    /**
+     * The customer's delivery charge: platform delivery income, except when the seller arranged and paid their
+     * own courier and the order was promised the charge at hand-off (externalShipment.deliveryFeePayee). Both
+     * routes use the SAME idempotency key, so one order's charge can only ever be booked once, to one payee —
+     * a replay that names the other payee is refused by the ledger (account mismatch).
+     */
+    const sellerGetsDelivery = order.deliveryType === 'external' && order.fulfillment?.method === 'external_courier' && order.externalShipment?.deliveryFeePayee === 'seller';
+    if (deliveryPaise > 0) await postLedgerEntry(sellerGetsDelivery
+      ? { idempotencyKey: `FINANCE:${order._id}:CUSTOMER_DELIVERY`, sellerId: incentiveSeller(snapshot), orderId: order._id, paymentId: order.paymentId,
+        account: 'seller_payable', type: 'self_delivery_fee', direction: 'credit', bucket: 'held', amount: deliveryPaise / 100,
+        description: `Delivery charge for own-courier delivery ${order.orderNo}`, postedBy: actorId, postedByRole: actorId ? 'admin' : 'system',
+        metadata: { source: 'order-finance-v2', snapshotId: snapshot.snapshotId, payee: 'seller', taxTreatment: 'pending_accountant_review' } }
+      : { idempotencyKey: `FINANCE:${order._id}:CUSTOMER_DELIVERY`, orderId: order._id,
+        account: 'customer_delivery', type: 'customer_delivery', direction: 'credit', bucket: 'held', amount: deliveryPaise / 100,
+        description: `Customer delivery charge ${order.orderNo}`, metadata: { source: 'order-finance-v2', snapshotId: snapshot.snapshotId } }, { session });
     // COD handling fee: platform income (net) + GST payable, never seller earnings.
     const { codFeeNetPaise, codFeeTaxPaise } = codFeeSplit(order, snapshot);
     if (codFeeNetPaise > 0) await postLedgerEntry({ idempotencyKey: `FINANCE:${order._id}:CUSTOMER_COD_FEE`, orderId: order._id,
@@ -370,7 +387,11 @@ export const releaseOrderFinance = async (orderId, actorId, review) => {
     }
     if (heldLines && !releasedLines) throw httpError(409, 'Delivery evidence, return hold or financial reconciliation has not cleared');
     const status = heldLines ? 'held' : 'eligible';
-    if (status === 'eligible') await releaseSameDayIncentive(order, actorId, session);
+    if (status === 'eligible') {
+      await releaseSameDayIncentive(order, actorId, session);
+      // Self Delivery (own courier): the delivery charge credited to the seller leaves the hold with the order.
+      await releaseSameDayIncentive(order, actorId, session, 'self_delivery_fee', 'Self Delivery charge');
+    }
     await Order.updateOne({ _id: order._id }, { $set: { financialPosting: status } }, { session });
     return { status, heldLines, releasedLines };
   });
@@ -636,6 +657,50 @@ export const recordCourierCodRemittance = async ({ reference, remittedAt, lines,
 };
 
 /**
+ * Re-apply the lines of a recorded remittance that could not settle at the time (invariant C3, amended
+ * 2026-11-25 with approval). The usual case: Shiprocket remitted the cash before its delivered scan reached
+ * Bulkimart, so the line was stored as `not_delivered`; or the AWB was not yet on any order (`unmatched`).
+ *
+ * Safeguards:
+ *   - Finance admin only, with a written reason; the attempt is appended to `reapplications` (the original
+ *     `lines` are never rewritten).
+ *   - Only lines whose latest outcome is not_delivered or unmatched are tried. Applied, partial, excess,
+ *     duplicate, not_cod, not_courier and no_finance_snapshot lines are never re-run.
+ *   - Each line goes through the same applyRemittanceLine as the first recording, which refuses a remittance
+ *     already applied to that order (`duplicate`) — so cash is never credited twice.
+ *   - The remittance's revision is incremented first inside the transaction: two attempts at once serialize,
+ *     and the second sees the first one's results.
+ *   - A delivered scan still never settles cash by itself; only the remitted amount does, and seller earnings
+ *     still wait for verified cash (L2).
+ */
+const REAPPLICABLE_REMITTANCE_OUTCOMES = ['not_delivered', 'unmatched'];
+export const reapplyCourierCodRemittance = async ({ remittanceId, reason, actorId }) => {
+  requireFinanceOperation();
+  if (!actorId) throw httpError(403, 'A finance admin must re-apply the remittance');
+  if (!mongoose.isValidObjectId(remittanceId)) throw httpError(400, 'Invalid remittance reference');
+  const note = typeof reason === 'string' ? reason.trim() : '';
+  if (note.length < 5 || note.length > 500) throw httpError(400, 'Explain why the remittance is being re-applied (5–500 characters)');
+  return financialTransaction(async session => {
+    const remittance = await CourierCodRemittance.findOneAndUpdate({ _id: remittanceId }, { $inc: { revision: 1 } }, { session, returnDocument: 'after' });
+    if (!remittance) throw httpError(404, 'Remittance not found');
+    const latest = new Map(remittance.lines.map(line => [line.awb, { awb: line.awb, amountPaise: line.amountPaise, outcome: line.outcome }]));
+    for (const attempt of remittance.reapplications || []) for (const result of attempt.results || []) {
+      const line = latest.get(result.awb);
+      if (line) latest.set(result.awb, { ...line, outcome: result.outcome });
+    }
+    const eligible = [...latest.values()].filter(line => REAPPLICABLE_REMITTANCE_OUTCOMES.includes(line.outcome));
+    if (!eligible.length) throw httpError(409, 'No line of this remittance is waiting to be applied', { code: 'NOTHING_TO_REAPPLY' });
+    const results = [];
+    for (const line of eligible) {
+      const applied = await applyRemittanceLine({ row: { awb: line.awb, amountPaise: line.amountPaise }, remittance, actorId, session });
+      results.push({ awb: line.awb, previousOutcome: line.outcome, outcome: applied.outcome, orderId: applied.orderId, detail: applied.detail });
+    }
+    await CourierCodRemittance.updateOne({ _id: remittance._id }, { $push: { reapplications: { at: new Date(), actorId, reason: note, results } } }, { session });
+    return { remittanceId: remittance._id, reference: remittance.reference, revision: remittance.revision, results };
+  });
+};
+
+/**
  * Read-only reconciliation report of courier COD orders (historical and new): shipment, cash/remittance, payment,
  * seller-earning and return state, and the action each needs. Changes nothing.
  */
@@ -643,10 +708,13 @@ export const courierCodReconciliationReport = async ({ page = 1, limit = 50, nee
   const filter = { paymentMethod: 'cod', deliveryType: 'shiprocket', ...(needsAction ? { 'codFinance.status': { $nin: ['verified', 'allocated'] } } : {}) };
   const [orders, total] = await Promise.all([
     Order.find(filter).sort({ createdAt: -1 }).skip((page - 1) * limit).limit(limit)
-      .select('orderNo status paymentId pricing.totalAmount financialSnapshot.version financialSnapshot.expectedPaise financialPosting codFinance.status codFinance.source codFinance.remittedPaise shiprocket.orderId shiprocket.awb shiprocket.trackingStatus shiprocket.status createdAt').lean(),
+      .select('orderNo status paymentId pricing.totalAmount financialSnapshot.version financialSnapshot.expectedPaise financialPosting codFinance.status codFinance.source codFinance.remittedPaise shiprocket.orderId shiprocket.shipmentId shiprocket.awb shiprocket.trackingStatus shiprocket.status createdAt').lean(),
     Order.countDocuments(filter),
   ]);
   const ids = orders.map(order => order._id);
+  // Provider charges confirmed from billing evidence (courierCost.service.js), per forward shipment.
+  const chargeRows = await CourierCharge.find({ _id: { $in: orders.filter(order => order.shiprocket?.shipmentId).map(order => `forward:${order.shiprocket.shipmentId}`) }, status: 'actual' }).select('actualPaise').lean();
+  const verifiedChargeOf = new Map(chargeRows.map(row => [row._id, row.actualPaise || 0]));
   const [payments, returns] = await Promise.all([
     Payment.find({ _id: { $in: orders.map(order => order.paymentId).filter(Boolean) } }).select('status').lean(),
     Return.find({ orderId: { $in: ids } }).select('orderId status refundStatus refundAmount').lean(),
@@ -663,7 +731,18 @@ export const courierCodReconciliationReport = async ({ page = 1, limit = 50, nee
           : cashStatus === 'discrepancy' ? 'Finance review: remitted more than expected'
             : remittedPaise > 0 ? 'Record the remaining remittance or review the shortfall'
               : 'Record the courier remittance from the provider report';
-    return { orderId: order._id, orderNo: order.orderNo, orderStatus: order.status, shipment: { awb: order.shiprocket?.awb || null, providerBooked: Boolean(order.shiprocket?.orderId), tracking: order.shiprocket?.trackingStatus || order.shiprocket?.status || null },
+    /**
+     * Gross vs net, shown side by side and never netted automatically. If Shiprocket remits the full COD
+     * amount (charges billed separately), `outstandingPaise` is what is still to come. If it deducts its
+     * charges first, the deduction shows as `verifiedCourierChargesPaise` once finance records the provider
+     * invoice, and `unexplainedPaise` is what neither remittance nor verified charges account for. Neither
+     * case settles anything: a shortfall stays outstanding until finance records evidence or writes it off.
+     */
+    const verifiedCourierChargesPaise = order.shiprocket?.shipmentId ? verifiedChargeOf.get(`forward:${order.shiprocket.shipmentId}`) ?? null : null;
+    const outstandingPaise = Math.max(0, expectedPaise - remittedPaise);
+    const amounts = { grossCodPaise: expectedPaise, verifiedCourierChargesPaise, remittedPaise, outstandingPaise,
+      unexplainedPaise: Math.max(0, outstandingPaise - (verifiedCourierChargesPaise || 0)), excessPaise: Math.max(0, remittedPaise - expectedPaise) };
+    return { orderId: order._id, orderNo: order.orderNo, orderStatus: order.status, amounts, shipment: { awb: order.shiprocket?.awb || null, providerBooked: Boolean(order.shiprocket?.orderId), tracking: order.shiprocket?.trackingStatus || order.shiprocket?.status || null },
       expectedPaise, remittedPaise, cashStatus, paymentStatus: paymentOf.get(String(order.paymentId)) || 'missing', sellerEarning: order.financialPosting || 'not_posted',
       returns: orderReturns.map(row => ({ status: row.status, refundStatus: row.refundStatus, refundAmount: row.refundAmount })), action };
   });

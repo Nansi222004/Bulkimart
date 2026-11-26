@@ -226,6 +226,14 @@ export const getMyReturn = asyncHandler(async (req, res) => {
 // @access  Private/Seller (approved)
 // Internal bookkeeping a seller never needs (idempotency keys, provider
 // operation tokens, refund locks, rider offer lists).
+/** FBB returns are decided and handled by Bulkimart (controllers/fbbReturns.controller.js), never the seller. */
+const assertSellerMayActOnReturn = async (req) => {
+  if (req.fbbAdmin || !mongoose.Types.ObjectId.isValid(req.params.returnId)) return;
+  const ret = await Return.findById(req.params.returnId).select('orderId').lean();
+  const order = ret && await Order.findById(ret.orderId).select('fulfillmentOwner').lean();
+  if (order?.fulfillmentOwner === 'bulkimart') throw httpError(403, 'Bulkimart handles returns of Fulfilled by Bulkimart orders; you can follow it here.', { code: 'FBB_SELLER_READ_ONLY' });
+};
+
 const SELLER_HIDDEN_FIELDS = '-requestKey -reverseBooking.operationToken -refundLockedAt -pickup.offerAttempts -zeroRefundEvidence';
 
 export const listSellerReturns = asyncHandler(async (req, res) => {
@@ -295,6 +303,7 @@ export const getSellerReturn = asyncHandler(async (req, res) => {
 // @route   POST /api/sellers/returns/:returnId/decision  { decision: APPROVED|REJECTED, rejectionReason?, comment? }
 // @access  Private/Seller (approved)
 export const sellerDecideReturnCtrl = asyncHandler(async (req, res) => {
+  await assertSellerMayActOnReturn(req);
   const seller = req.seller || await Seller.findOne({ userId: req.user._id });
   if (!seller) throw httpError(404, 'Seller profile not found');
   if (!mongoose.Types.ObjectId.isValid(req.params.returnId)) throw httpError(400, 'Invalid return id');
@@ -311,6 +320,7 @@ export const sellerDecideReturnCtrl = asyncHandler(async (req, res) => {
  * @access  Private/Seller (approved)
  */
 export const assignRiderForReturn = asyncHandler(async (req, res) => {
+  await assertSellerMayActOnReturn(req);
   const seller = req.seller || await Seller.findOne({ userId: req.user._id });
   if (!seller) throw httpError(404, 'Seller profile not found');
 
@@ -326,6 +336,7 @@ export const getReturnPickupOptions = asyncHandler(async (req, res) => {
 });
 
 export const selectReturnPickup = asyncHandler(async (req, res) => {
+  await assertSellerMayActOnReturn(req);
   const seller = req.seller || await Seller.findOne({ userId: req.user._id });
   if (!seller) throw httpError(404, 'Seller not found');
   const input = { returnId: req.params.returnId, sellerId: seller._id, riderId: req.body.riderId };
@@ -335,11 +346,13 @@ export const selectReturnPickup = asyncHandler(async (req, res) => {
   return ok(res, ret, req.body.pickupMethod === 'MANUAL' ? 'Pickup requested; awaiting delivery partner acceptance' : 'Shiprocket pickup status recorded');
 });
 export const refreshReturnCourier = asyncHandler(async (req, res) => {
+  await assertSellerMayActOnReturn(req);
   const seller = req.seller || await Seller.findOne({ userId: req.user._id });
   if (!seller) throw httpError(404, 'Seller not found');
   return ok(res, await reconcileReturnCourier({ returnId: req.params.returnId, sellerId: seller._id }));
 });
 export const cancelReturnPickup = asyncHandler(async (req, res) => {
+  await assertSellerMayActOnReturn(req);
   const seller = req.seller || await Seller.findOne({ userId: req.user._id });
   if (!seller) throw httpError(404, 'Seller not found');
   const ret = await Return.findOne({ _id: req.params.returnId, sellerId: seller._id });
@@ -361,6 +374,7 @@ export const cancelReturnPickup = asyncHandler(async (req, res) => {
  * @access  Private/Seller (approved)
  */
 export const sellerConfirmReturnReceived = asyncHandler(async (req, res) => {
+  await assertSellerMayActOnReturn(req);
   const seller = req.seller || await Seller.findOne({ userId: req.user._id });
   if (!seller) throw httpError(404, 'Seller profile not found');
 

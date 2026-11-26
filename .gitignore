@@ -75,3 +75,38 @@ PASSWORDS-README.txt
 # Notes, audits and reports (.md) stay local; they can describe internals and should not be published.
 *.md
 !**/node_modules/**/*.md
+# The financial invariants are a reviewed contract for every money change, so they stay in version control.
+!/BULKIMART_FINANCIAL_INVARIANTS.md
+
+# Delivery methods (Easy Ship / Self Delivery / FBB), Phases 1-4 and closure: these regression tests, the Jest
+# setup they need to run, and the closure documents stay in version control. Only the files named here are
+# re-included; everything else in these folders stays local exactly as the rules above say.
+# (A folder must be re-opened before a file inside it can be re-included; its other contents are ignored again.)
+!/backend/__tests__/
+/backend/__tests__/*
+!/backend/__tests__/jest.config.js
+!/backend/__tests__/setup/
+/backend/__tests__/setup/*
+!/backend/__tests__/setup/env.js
+!/backend/__tests__/setup/retryTeardown.js
+!/backend/__tests__/api/
+/backend/__tests__/api/*
+!/backend/__tests__/api/delivery-method.http.test.js
+!/backend/__tests__/api/self-delivery.http.test.js
+!/backend/__tests__/api/shiprocket-cod.http.test.js
+!/backend/__tests__/api/fbb.http.test.js
+!/backend/__tests__/api/fbb-closure.http.test.js
+!/backend/__tests__/services/
+/backend/__tests__/services/*
+!/backend/__tests__/services/delivery-method.test.js
+!/backend/__tests__/services/shiprocket-cod.test.js
+!/backend/verification/
+/backend/verification/*
+!/backend/verification/jest.config.js
+!/backend/verification/env.js
+!/backend/verification/delivery-phase2b.test.js
+!/backend/verification/fbb-phase3.test.js
+!/mobile-seller/__tests__/
+/mobile-seller/__tests__/*
+!/mobile-seller/__tests__/deliveryMethod.test.js
+!/docs/delivery-methods/*.md

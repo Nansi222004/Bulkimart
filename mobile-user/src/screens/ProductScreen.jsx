@@ -411,6 +411,9 @@ function ProductDetail({ product, routeMode, routeVariant, close }) {
           </View>
           <Pressable onPress={() => replaceNav('account')}><Text style={{ color: primary, fontSize: 11, fontWeight: '800' }}>Change</Text></Pressable>
         </View>
+        {isEcom && product.fulfilledByBulkimart && <View style={{ alignSelf: 'flex-start', paddingHorizontal: 10, paddingVertical: 4, marginBottom: 6, borderRadius: 999, backgroundColor: '#e0e7ff' }}>
+          <Text style={{ fontSize: 11, fontWeight: '800', color: '#3730a3' }}>✓ Fulfilled by Bulkimart · stored, packed and shipped by Bulkimart</Text>
+        </View>}
         {wholesale.mode === 'wholesale' && <Text style={styles.desc}>Delivery availability and charges are confirmed for your address in the Wholesale cart.</Text>}
         {wholesale.mode === 'retail' && isEcom && (deliveryPoint ? <View style={{ gap: 8, marginTop: 4 }}>
           {sameDay?.available && <View style={[styles.deliveryBox, { backgroundColor: '#dcfce7' }]}>

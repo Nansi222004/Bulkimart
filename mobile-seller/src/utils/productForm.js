@@ -80,6 +80,7 @@ export const emptyForm = () => ({
   variants: [{ ...blankVariant(), name: 'Default' }],
   specs: {}, ...commonDefaults, videos: [],
   sameDayEnabled: false, processingMinutes: '', returnable: false, returnWindowDays: '',
+  deliveryMethod: 'easy_ship',
   ...easyDefaults,
 });
 
@@ -103,6 +104,9 @@ export const formFromProduct = (raw) => ({
   processingMinutes: raw.sameDay?.processingMinutes ?? '',
   returnable: raw.type === 'grocery' ? Boolean(raw.returnable) : raw.returnSettings?.enabled !== false,
   returnWindowDays: raw.returnSettings?.windowDays ?? '',
+  // Absent = Easy Ship (every product listed before delivery methods existed).
+  deliveryMethod: raw.deliveryMethod || 'easy_ship',
+  savedDeliveryMethod: raw.deliveryMethod || 'easy_ship',
   ...easyFromProduct(raw),
 });
 
@@ -237,6 +241,10 @@ export function buildCreateFormData(form, channel, images) {
   fd.append('variants', JSON.stringify(form.variants.map((v) => variantPayload(v, false))));
   appendDetails(fd, form);
   // The web only offers same-day on edit, so a new listing never carries sameDay.
+  // Delivery method (Shop All): Easy Ship is the default and is not sent, as on the web.
+  if (channel === 'ecommerce' && form.deliveryMethod && form.deliveryMethod !== 'easy_ship') fd.append('deliveryMethod', form.deliveryMethod);
+  // A new FBB listing carries the charge version the seller accepted (the server refuses a stale one).
+  if (channel === 'ecommerce' && form.deliveryMethod === 'fbb' && form.fbbChargeVersion) fd.append('fbbChargeVersion', String(form.fbbChargeVersion));
   fd.append('returnable', form.returnable ? 'true' : 'false');
   fd.append('returnWindowDays', form.returnable ? String(form.returnWindowDays ?? '') : '');
   fd.append('easyReturns', easyReturnsPayload(form));
@@ -258,6 +266,8 @@ export function buildUpdateFormData(form, channel, images) {
   // sameDay is always sent on a Shop All edit: leaving it out means "no change", which would make switching it off impossible.
   if (channel === 'ecommerce') {
     fd.append('sameDay', JSON.stringify(form.sameDayEnabled ? { enabled: true, processingMinutes: Number(form.processingMinutes) } : { enabled: false }));
+    // Sent only when changed, so an untouched edit is the same request as before.
+    if (form.deliveryMethod && form.deliveryMethod !== (form.savedDeliveryMethod || 'easy_ship')) fd.append('deliveryMethod', form.deliveryMethod);
   }
   fd.append('returnable', form.returnable ? 'true' : 'false');
   fd.append('returnWindowDays', form.returnable ? String(form.returnWindowDays ?? '') : '');

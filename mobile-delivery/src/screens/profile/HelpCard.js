@@ -24,6 +24,7 @@ function HelpRow({ icon, tint, title, subtitle, onPress, last }) {
 export default function HelpCard({ sos, navigation }) {
   const call = () => Linking.openURL(`tel:${String(sos).replace(/[^\d+]/g, '')}`).catch(() => {});
   const rows = [
+    { icon: '🎓', tint: colors.warningLight, title: 'Training videos', subtitle: 'Learn how to use the app', onPress: () => navigation.navigate('Training') },
     { icon: '💬', tint: colors.aquaLight, title: 'Chat with support', subtitle: 'Talk to the Bulkimart team now', onPress: () => navigation.navigate('SupportChat') },
     { icon: '🎫', tint: colors.orangeLight, title: 'Support tickets', subtitle: 'Raise or track a request', onPress: () => navigation.navigate('Support') },
     { icon: '🔔', tint: colors.infoLight, title: 'Notifications', subtitle: 'Offers, payouts and updates', onPress: () => navigation.navigate('Notifications') },

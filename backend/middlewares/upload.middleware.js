@@ -136,3 +136,17 @@ export const uploadProductVideoFile = (req, res, next) => productVideoUpload(req
   if (error?.code === 'LIMIT_FILE_SIZE') return next(Object.assign(new Error('The video must be 50 MB or smaller.'), { status: 413 }));
   next(error);
 });
+
+// One training video (MP4, admin only), to a temporary file like product videos; up to 300 MB.
+const trainingVideoUpload = multer({
+  storage: multer.diskStorage({}),
+  limits: { fileSize: 300 * 1024 * 1024, files: 1, fields: 2, fieldSize: 1024 },
+  fileFilter: (_req, file, cb) => {
+    const ok = /^video\/(mp4|x-m4v)$/i.test(file.mimetype) || /\.(mp4|m4v)$/i.test(file.originalname || '');
+    cb(ok ? null : Object.assign(new Error('Upload the video as an MP4 file.'), { status: 400 }), ok);
+  },
+}).single('video');
+export const uploadTrainingVideoFile = (req, res, next) => trainingVideoUpload(req, res, (error) => {
+  if (error?.code === 'LIMIT_FILE_SIZE') return next(Object.assign(new Error('The video must be 300 MB or smaller.'), { status: 413 }));
+  next(error);
+});

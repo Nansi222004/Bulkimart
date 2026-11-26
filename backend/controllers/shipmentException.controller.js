@@ -28,3 +28,16 @@ export const resolveShipmentExceptionAdmin = asyncHandler(async (req, res) => {
   const order = await resolveShipmentException({ orderId: req.params.orderId, adminId: req.user._id, decision, restock, sellerSettlement, customerMessage, note });
   return ok(res, order, decision === 'CANCEL_AND_REFUND' ? 'Order cancelled and refunded under the usual refund rules' : 'Shipment exception closed');
 });
+
+// Self Delivery by the seller's own courier: failed attempts and customer "not received" reports.
+export const getExternalShipmentIssues = asyncHandler(async (req, res) => {
+  const { listExternalShipmentIssues } = await import('../services/externalCourier.service.js');
+  const page = Math.max(1, Number(req.query.page) || 1), limit = Math.min(50, Math.max(1, Number(req.query.limit) || 20));
+  return ok(res, await listExternalShipmentIssues({ page, limit }));
+});
+export const resolveExternalShipmentAdmin = asyncHandler(async (req, res) => {
+  const { adminResolveExternalShipment } = await import('../services/externalCourier.service.js');
+  const { action, reason, restock } = req.body || {};
+  const order = await adminResolveExternalShipment({ orderId: req.params.orderId, adminId: req.user._id, action, reason, restock });
+  return ok(res, { status: order.status, externalShipment: order.externalShipment }, 'Self Delivery shipment updated');
+});

@@ -7,7 +7,7 @@ import AppButton from '../../components/AppButton';
 import AppInput from '../../components/AppInput';
 import { ErrorView, InlineNotice, LoadingView } from '../../components/StateViews';
 import useApiResource from '../../hooks/useApiResource';
-import { createShiprocketShipment, getFulfillmentOptions, selectManualFulfillment } from '../../services/fulfillment.api';
+import { createShiprocketShipment, dispatchExternalCourier, getFulfillmentOptions, selectManualFulfillment } from '../../services/fulfillment.api';
 import { addressText, orderMoney } from '../../utils/format';
 import ShiprocketFeeCard from './ShiprocketFeeCard';
 import { colors, radius, spacing, type } from '../../theme';
@@ -25,6 +25,7 @@ export default function FulfillmentScreen({ route, navigation }) {
   const [size, setSize] = useState({ length: '', breadth: '', height: '' });
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState('');
+  const [courier, setCourier] = useState({ courierName: '', awb: '', trackingUrl: '', dispatchDate: new Date().toISOString().slice(0, 10) });
 
   React.useEffect(() => { navigation.setOptions({ title: orderNo ? `Delivery · ${orderNo}` : 'Choose delivery method' }); }, [navigation, orderNo]);
   // Start from the package size saved on the listing (single-item orders only); the seller can still change it.
@@ -41,6 +42,9 @@ export default function FulfillmentScreen({ route, navigation }) {
   const ship = options.shiprocket || {};
   const onlineRiders = (manual.riders || []).filter((r) => r.online === true);
   const isQuick = channel === 'grocery';
+  // Self Delivery: rider or the seller's own courier, never Bulkimart's Shiprocket.
+  const selfDelivery = options.deliveryMethod === 'self_delivery';
+  const external = options.external || {};
 
   const finish = (body) => {
     ToastAndroid.show(body?.message || 'Delivery method saved', ToastAndroid.LONG);
@@ -51,6 +55,18 @@ export default function FulfillmentScreen({ route, navigation }) {
     setBusy(true); setMessage('');
     try { finish(await selectManualFulfillment(orderId, riderId)); }
     catch (e) { setMessage(e.message || 'Could not select manual delivery'); }
+    finally { setBusy(false); }
+  };
+
+  const confirmExternal = async () => {
+    setMessage('');
+    if (courier.courierName.trim().length < 2) return setMessage('Enter the courier company name.');
+    if (courier.awb.trim().length < 3) return setMessage('Enter the tracking ID / AWB number.');
+    if (!/^https:\/\//i.test(courier.trackingUrl.trim())) return setMessage('Enter the tracking link, starting with https://');
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(courier.dispatchDate)) return setMessage('Enter the dispatch date as YYYY-MM-DD.');
+    setBusy(true);
+    try { finish(await dispatchExternalCourier(orderId, { ...courier, courierName: courier.courierName.trim(), awb: courier.awb.trim(), trackingUrl: courier.trackingUrl.trim() })); }
+    catch (e) { setMessage(e.message || 'Could not save the courier hand-off'); }
     finally { setBusy(false); }
   };
 
@@ -76,7 +92,7 @@ export default function FulfillmentScreen({ route, navigation }) {
     <Screen refreshing={refreshing} onRefresh={refresh}>
       <Text style={type.small}>Arrange fulfilment for this order. Eligibility is checked again by the server when you confirm.</Text>
       <View style={styles.choices} accessibilityRole="radiogroup">
-        {[['manual', 'Manual delivery', 'Bulkimart delivery partners'], ['shiprocket', 'Shiprocket', 'Courier shipment']].map(([value, title, hint]) => (
+        {[['manual', 'Manual delivery', 'Bulkimart delivery partners'], selfDelivery ? ['external', 'Your own courier', 'You book it; enter tracking'] : ['shiprocket', 'Shiprocket', 'Courier shipment']].map(([value, title, hint]) => (
           <Pressable key={value} accessibilityRole="radio" accessibilityState={{ checked: choice === value }} disabled={busy}
             onPress={() => { setChoice(value); setMessage(''); }} style={[styles.choice, choice === value && styles.choiceActive]}>
             <Text style={[type.label, choice === value && styles.activeText]}>{title}</Text>
@@ -111,7 +127,19 @@ export default function FulfillmentScreen({ route, navigation }) {
         </Card>
       ) : null}
 
-      {choice === 'shiprocket' ? (
+      {choice === 'external' && selfDelivery ? (
+        <Card title="Your own courier">
+          <Text style={type.small}>You book and pay the courier. Enter its tracking details so the customer can follow the parcel, then update the status as it is delivered.</Text>
+          <AppInput label="Courier company" value={courier.courierName} maxLength={60} editable={!busy} onChangeText={(t) => setCourier((c) => ({ ...c, courierName: t }))} />
+          <AppInput label="Tracking ID / AWB number" value={courier.awb} maxLength={40} autoCapitalize="characters" editable={!busy} onChangeText={(t) => setCourier((c) => ({ ...c, awb: t }))} />
+          <AppInput label="Tracking link (https://…)" value={courier.trackingUrl} maxLength={500} autoCapitalize="none" keyboardType="url" editable={!busy} onChangeText={(t) => setCourier((c) => ({ ...c, trackingUrl: t }))} />
+          <AppInput label="Dispatch date (YYYY-MM-DD)" value={courier.dispatchDate} maxLength={10} editable={!busy} onChangeText={(t) => setCourier((c) => ({ ...c, dispatchDate: t }))} />
+          {!external.available && external.reason ? <InlineNotice tone="warning">{external.reason}</InlineNotice> : null}
+          <AppButton title="Confirm hand-off to courier" loading={busy} disabled={!external.available} onPress={confirmExternal} />
+        </Card>
+      ) : null}
+
+      {choice === 'shiprocket' && !selfDelivery ? (
         <Card title="Shiprocket shipment">
           <Text style={type.small}>Pickup from: {addressText(ship.verifiedPickup || options.pickup)}</Text>
           {!ship.pickupLinked ? <AppButton small variant="outline" title="Check or retry pickup registration" onPress={() => navigation.navigate('PickupSync')} /> : null}

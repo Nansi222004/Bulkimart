@@ -12,6 +12,7 @@ import { socket } from '../../../utils/socket';
 import { AttachmentUploader } from '../../../components/common/AttachmentPreview';
 import { deliveryLabelFor, hasLiveRider, goesByCourier } from '../utils/deliveryLabel';
 import { formatCurrency } from '../utils/helpers';
+import ExternalNotReceived from '../components/ExternalNotReceived';
 
 // Return reasons as customers and sellers read them ("Damaged item", not the stored code "DAMAGED").
 const RETURN_REASON_LABEL = { DAMAGED: 'Damaged item', DEFECTIVE: 'Defective / not working', WRONG_PRODUCT: 'Wrong product received', WRONG_SIZE: 'Wrong size', NOT_AS_DESCRIBED: 'Not as described', MISSING_PARTS: 'Missing parts', QUALITY_ISSUE: 'Quality issue', OTHER: 'Other' };
@@ -535,6 +536,10 @@ export const OrderTrackingPage = () => {
    */
   const liveRider = hasLiveRider(track, selectedOrder);
   const byCourier = goesByCourier(track, selectedOrder);
+  // Courier, tracking number and link: the seller's own courier (Self Delivery) or the Shiprocket booking.
+  const courierInfo = track?.externalShipment
+    ? { courier: track.externalShipment.courierName, awb: track.externalShipment.awb, trackingUrl: track.externalShipment.trackingUrl }
+    : track?.shiprocket;
   const deliveryLabel = deliveryLabelFor(track) || deliveryLabelFor(selectedOrder);
 
   const displayAddr = selectedOrder.shippingAddress || {};
@@ -692,23 +697,23 @@ export const OrderTrackingPage = () => {
           What the customer can actually use is the courier's name and the
           waybill number, which is exactly what the shop entered at hand-off.
         */}
-        {byCourier && track?.shiprocket?.awb && (
+        {byCourier && courierInfo?.awb && (
           <div style={{
             padding: 16, borderRadius: 12, marginBottom: 12,
             background: 'var(--primary-light)', border: '1.5px solid var(--primary)',
           }}>
             <div style={{ fontSize: 11, fontWeight: 800, color: 'var(--primary)', textTransform: 'uppercase', letterSpacing: 0.5 }}>
-              On its way with {track.shiprocket.courier}
+              On its way with {courierInfo.courier}
             </div>
             <div style={{ fontSize: 20, fontWeight: 900, letterSpacing: 1.5, color: 'var(--text-primary)', margin: '6px 0 4px' }}>
-              {track.shiprocket.awb}
+              {courierInfo.awb}
             </div>
             <div style={{ fontSize: 11, color: 'var(--text-muted)', fontWeight: 600 }}>
-              Quote this tracking number to {track.shiprocket.courier}
+              Quote this tracking number to {courierInfo.courier}
             </div>
-            {track.shiprocket.trackingUrl && (
+            {courierInfo.trackingUrl && (
               <a
-                href={track.shiprocket.trackingUrl}
+                href={courierInfo.trackingUrl}
                 target="_blank"
                 rel="noopener noreferrer"
                 style={{
@@ -722,8 +727,29 @@ export const OrderTrackingPage = () => {
           </div>
         )}
 
+        {/* Fulfilled by Bulkimart: the warehouse stages before the parcel leaves. */}
+        {track?.fbb?.stages?.length > 0 && !track.fbb.stages[track.fbb.stages.length - 1].done && (
+          <div aria-label="Bulkimart warehouse progress" style={{ border: '1px solid #e2e8f0', borderRadius: 12, padding: 14, marginTop: 12 }}>
+            <strong style={{ fontSize: 13 }}>Packed and shipped by Bulkimart</strong>
+            <ol style={{ listStyle: 'none', padding: 0, margin: '8px 0 0' }}>
+              {track.fbb.stages.map(stage => (
+                <li key={stage.key} style={{ display: 'flex', gap: 8, fontSize: 12.5, padding: '3px 0', color: stage.done ? '#0f172a' : '#94a3b8' }}>
+                  <span aria-hidden="true">{stage.done ? '✓' : '○'}</span>
+                  <span>{stage.label}{stage.at ? ` · ${new Date(stage.at).toLocaleString('en-IN', { day: 'numeric', month: 'short', hour: 'numeric', minute: '2-digit' })}` : ''}</span>
+                </li>
+              ))}
+            </ol>
+          </div>
+        )}
+
+        {/* Self Delivery by the seller's own courier: report a delivery that never arrived. */}
+        {track?.externalShipment && (
+          <ExternalNotReceived orderId={orderId} shipment={track.externalShipment}
+            onReported={() => setTrack(previous => ({ ...previous, externalShipment: { ...previous.externalShipment, reportStatus: 'open', reportableUntil: null } }))} />
+        )}
+
         {/* Shop All, packed but not yet handed over. */}
-        {byCourier && !track?.shiprocket?.awb
+        {byCourier && !courierInfo?.awb
           && ['confirmed', 'preparing'].includes(currentStatus) && (
           <div style={{
             padding: 14, borderRadius: 12, marginBottom: 12,

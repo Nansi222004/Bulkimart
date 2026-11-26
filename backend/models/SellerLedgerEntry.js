@@ -12,11 +12,17 @@ export const SELLER_LEDGER_TYPES = [
   'commission_tax', 'delivery_earning', 'cod_cash', 'customer_delivery', 'customer_cod_fee', 'cod_fee_tax', 'merchandise_gross',
   'tcs_deduction', 'tds_deduction', 'platform_discount', 'cod_shortage_writeoff',
   'same_day_incentive', 'courier_cost',
+  // Customer delivery charge credited to a seller who arranged and paid their own courier (Self Delivery).
+  'self_delivery_fee',
+  // FBB service charges owed by a seller (account seller_fbb_obligation), their reversal, the seller's advance
+  // payment, and settlement from eligible earnings (a balanced pair: seller_payable debit + obligation credit).
+  'fbb_storage_fee', 'fbb_packaging_fee', 'fbb_fulfillment_fee', 'fbb_fee_reversal', 'fbb_fee_payment', 'fbb_fee_settlement',
   // Rider wallet (COD parcels): earning kept from cash, cash owed to Bulkimart, and the rider's payments of it.
   'parcel_earning', 'parcel_cash_due', 'rider_cash_payment',
 ];
 // Quick Shiprocket charges a seller prepays. They are a seller obligation with
 // its own payment, never part of the seller's earnings buckets.
+export const SELLER_FBB_OBLIGATION_TYPES = ['fbb_storage_fee', 'fbb_packaging_fee', 'fbb_fulfillment_fee', 'fbb_fee_reversal', 'fbb_fee_payment', 'fbb_fee_settlement'];
 export const SELLER_COURIER_OBLIGATION_TYPES = ['quick_freight_obligation', 'quick_service_fee', 'quick_fee_tax', 'quick_fee_payment'];
 
 const sellerLedgerEntrySchema = new Schema({
@@ -25,7 +31,7 @@ const sellerLedgerEntrySchema = new Schema({
   sellerId: { type: Schema.Types.ObjectId, ref: 'Seller', index: true, immutable: true },
   partnerId: { type: Schema.Types.ObjectId, ref: 'DeliveryPartner', immutable: true },
   deliveryId: { type: Schema.Types.ObjectId, ref: 'Delivery', immutable: true },
-  account: { type: String, enum: ['service_collections', 'gst_assistance_collections', 'advertising_cash', 'advertising_liability', 'advertising_tax', 'advertising_revenue', 'seller_payable', 'rider_payable', 'commission_revenue', 'tax_liability', 'tcs_liability', 'tds_liability', 'platform_discount_expense', 'cod_shortage_expense', 'customer_delivery', 'customer_cod_fee', 'cod_custody', 'cod_excess_liability', 'merchandise_gross', 'legal_provider_payable', 'legal_collections', 'parcel_collections', 'parcel_cash_custody', 'parcel_driver_payable', 'parcel_revenue', 'seller_courier_obligation', 'courier_expense'], default: 'seller_payable', immutable: true },
+  account: { type: String, enum: ['service_collections', 'gst_assistance_collections', 'advertising_cash', 'advertising_liability', 'advertising_tax', 'advertising_revenue', 'seller_payable', 'rider_payable', 'commission_revenue', 'tax_liability', 'tcs_liability', 'tds_liability', 'platform_discount_expense', 'cod_shortage_expense', 'customer_delivery', 'customer_cod_fee', 'cod_custody', 'cod_excess_liability', 'merchandise_gross', 'legal_provider_payable', 'legal_collections', 'parcel_collections', 'parcel_cash_custody', 'parcel_driver_payable', 'parcel_revenue', 'seller_courier_obligation', 'courier_expense', 'seller_fbb_obligation'], default: 'seller_payable', immutable: true },
   advertisingCampaignId: { type: Schema.Types.ObjectId, ref: 'SellerPromotion', immutable: true },
   advertiserSellerId: { type: Schema.Types.ObjectId, ref: 'Seller', immutable: true },
   advertisingRevision: { type: Number, immutable: true },
@@ -79,6 +85,8 @@ sellerLedgerEntrySchema.pre('validate', function () {
   if (this.parcelDeliveryId && (this.bucket!=='held' || this.currency!=='INR' || !['parcel_collections','parcel_cash_custody','parcel_driver_payable','parcel_revenue','tax_liability'].includes(this.account) || ['sellerId','orderId','deliveryId','payoutId','deliveryPayoutId','serviceApplicationId','providerId','snapshotId'].some(k=>this[k]))) throw new Error('Parcel postings require held INR balances and exclusive parcel references and accounts');
   if (this.account === 'seller_payable' && !this.sellerId) throw new Error('Seller payable requires sellerId');
   if (this.account === 'seller_courier_obligation' && (!this.sellerId || !SELLER_COURIER_OBLIGATION_TYPES.includes(this.type))) throw new Error('Seller courier obligations require a seller and a courier obligation type');
+  if (this.account === 'seller_fbb_obligation' && (!this.sellerId || !SELLER_FBB_OBLIGATION_TYPES.includes(this.type))) throw new Error('FBB obligations require a seller and an FBB charge type');
+  if (SELLER_FBB_OBLIGATION_TYPES.includes(this.type) && this.account !== 'seller_fbb_obligation' && !(this.type === 'fbb_fee_settlement' && this.account === 'seller_payable' && this.direction === 'debit' && this.bucket === 'eligible')) throw new Error('FBB charge entries belong to the FBB obligation account');
   if (this.account === 'courier_expense' && (this.type !== 'courier_cost' || !this.orderId || this.sellerId || this.partnerId)) throw new Error('Courier expense requires an order and no seller or rider');
   if (this.account === 'rider_payable' && !this.partnerId) throw new Error('Rider payable requires partnerId');
   if (this.account?.startsWith('parcel_') && !this.parcelDeliveryId) throw new Error('Parcel account requires parcelDeliveryId');

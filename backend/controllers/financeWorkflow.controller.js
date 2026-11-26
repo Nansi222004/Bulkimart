@@ -11,7 +11,7 @@ import { ok, httpError, paginated, getPagination } from '../utils/response.js';
 import { financeFlags } from '../services/financeSafety.service.js';
 import { financialReconciliation } from '../services/financialReconciliation.service.js';
 import { saveCommissionVersion, saveCommissionForAllChannels, describeCurrentCommissionRules } from '../services/vendorCommission.service.js';
-import { recordCourierCodRemittance, courierCodReconciliationReport } from '../services/orderFinance.service.js';
+import { recordCourierCodRemittance, courierCodReconciliationReport, reapplyCourierCodRemittance } from '../services/orderFinance.service.js';
 import CourierCodRemittance from '../models/CourierCodRemittance.js';
 import { recordCodEvent, postOrderFinance, releaseOrderFinance, releaseDeliveryEarning, repriceDeliveryEarning, reverseRefundedReturn, refundCompensation } from '../services/orderFinance.service.js';
 import { getFinancePolicy, saveFinancePolicy } from '../services/financePolicy.service.js';
@@ -181,6 +181,11 @@ export const reportCodRemittance = asyncHandler(async (req, res) => ok(res, awai
 export const recordCourierCodRemittanceAdmin = asyncHandler(async (req, res) => {
   const result = await recordCourierCodRemittance({ ...req.body, actorId: req.user._id });
   return ok(res, result.remittance, result.alreadyRecorded ? 'Remittance already recorded' : 'Courier remittance recorded');
+});
+// Re-apply the lines of a remittance that could not settle when recorded (e.g. remitted before the delivered scan).
+export const reapplyCourierCodRemittanceAdmin = asyncHandler(async (req, res) => {
+  const result = await reapplyCourierCodRemittance({ remittanceId: req.params.id, reason: req.body?.reason, actorId: req.user._id });
+  return ok(res, result, 'Remittance lines re-applied');
 });
 export const listCourierCodRemittances = asyncHandler(async (req, res) => {
   const { page, limit, skip } = getPagination(req.query, 20, 100);

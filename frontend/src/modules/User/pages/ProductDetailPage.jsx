@@ -651,6 +651,11 @@ const ProductDetailPage = () => {
           <button className="pd-change-btn" onClick={() => setActiveNav('account')}>Change</button>
         </div>
 
+        {isEcom && product?.fulfilledByBulkimart && (
+          <div style={{ display: 'inline-flex', alignItems: 'center', gap: 6, padding: '4px 10px', margin: '4px 0 6px', borderRadius: 999, background: '#e0e7ff', color: '#3730a3', fontSize: 12, fontWeight: 700 }}>
+            ✓ Fulfilled by Bulkimart <span style={{ fontWeight: 500 }}>· stored, packed and shipped by Bulkimart</span>
+          </div>
+        )}
         {wholesale.mode === 'wholesale' && <p className="pd-description-text">Delivery availability and charges are confirmed for your address in the Wholesale cart.</p>}
         {wholesale.mode === 'retail' && isEcom && (
           deliveryPoint ? (

@@ -97,6 +97,15 @@ export const adminPost = async (path, payload = {}) =>
     })
   );
 
+export const adminPut = async (path, payload = {}) =>
+  handle(
+    await fetch(apiUrl(`/api/admin${path}`), {
+      method: 'PUT',
+      headers: authHeaders(!isFormData(payload)),
+      body: isFormData(payload) ? payload : JSON.stringify(payload),
+    })
+  );
+
 export const adminDelete = async (path) =>
   handle(await fetch(apiUrl(`/api/admin${path}`), { method: 'DELETE', headers: authHeaders(false) }));
 

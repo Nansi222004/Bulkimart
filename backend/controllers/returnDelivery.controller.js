@@ -8,6 +8,7 @@ import {
 } from '../services/returnPickup.service.js';
 import { RETURN_PICKUP_STATUS, OFFER_ATTEMPT_STATUS } from '../constants/enums.js';
 import { distanceKm } from '../utils/geo.js';
+import { originSeller } from '../services/fulfilmentOrigin.service.js';
 
 /**
  * QUICK COMMERCE ONLY — rider-facing reverse-pickup endpoints, the
@@ -26,24 +27,27 @@ export const listReturnPickups = asyncHandler(async (req, res) => {
   const [pending, mine] = await Promise.all([
     Return.find({ pickupMethod: 'MANUAL', status: { $in: ['APPROVED', 'AWAITING_RETURN'] }, $or: [{ 'pickup.requestedRiderId': { $exists: false } }, { 'pickup.requestedRiderId': partnerId }], 'pickup.offerAttempts': { $elemMatch: { riderId: partnerId, status: OFFER_ATTEMPT_STATUS.OFFERED } }, 'pickup.status': RETURN_PICKUP_STATUS.NOT_ASSIGNED })
       .select('returnNumber productName productImage quantity sellerId orderId pickup')
-      .populate('orderId', 'shippingAddress')
+      .populate('orderId', 'shippingAddress origin fulfillmentOwner deliveryMethod')
       .populate('sellerId', 'storeDetails businessName')
       .populate('pickup.deliveryId', 'pickupLocation dropLocation status route ratesUsed')
       .lean(),
     Return.find({ 'pickup.partnerId': partnerId, 'pickup.status': { $in: [RETURN_PICKUP_STATUS.ASSIGNED, RETURN_PICKUP_STATUS.PICKED_UP] } })
       .select('returnNumber productName productImage quantity sellerId orderId pickup')
-      .populate('orderId', 'shippingAddress')
+      .populate('orderId', 'shippingAddress origin fulfillmentOwner deliveryMethod')
       .populate('sellerId', 'storeDetails businessName')
       .populate('pickup.deliveryId', 'pickupLocation dropLocation status route ratesUsed')
       .lean(),
   ]);
+
+  // An FBB return goes back to the Bulkimart warehouse: show the warehouse as the drop, never the seller's shop.
+  const toOrigin = async (rows) => Promise.all(rows.map(async (row) => ({ ...row, sellerId: await originSeller(row.orderId, row.sellerId) })));
 
   // Completed pickups this rider delivered back to a seller, newest first, with
   // what the trip earned.
   const history = await Return.find({ 'pickup.partnerId': partnerId, 'pickup.status': RETURN_PICKUP_STATUS.DELIVERED_TO_SELLER })
     .select('returnNumber productName productImage quantity sellerId orderId pickup pickedUpAt updatedAt')
     .sort({ 'pickup.sellerConfirmedReceivedAt': -1, updatedAt: -1 }).limit(30)
-    .populate('orderId', 'shippingAddress')
+    .populate('orderId', 'shippingAddress origin fulfillmentOwner deliveryMethod')
     .populate('sellerId', 'storeDetails businessName')
     .populate('pickup.deliveryId', 'status partnerEarnings endTime route')
     .lean();
@@ -59,7 +63,8 @@ export const listReturnPickups = asyncHandler(async (req, res) => {
       payout: returnPickupPayout(row.orderId, row.sellerId, row.pickup?.deliveryId) };
   };
 
-  return ok(res, { pending: pending.map(withDistances), active: mine.map(withDistances), history }, 'Return pickups');
+  const [pendingRows, activeRows, historyRows] = await Promise.all([toOrigin(pending), toOrigin(mine), toOrigin(history)]);
+  return ok(res, { pending: pendingRows.map(withDistances), active: activeRows.map(withDistances), history: historyRows }, 'Return pickups');
 });
 
 // @desc    Accept an offered return pickup

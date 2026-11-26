@@ -7,6 +7,7 @@ import { sumMoney } from '../utils/money.js';
 import { httpError } from '../utils/response.js';
 import { checkoutCodFees, resolveCodChargeSetting } from './codCharge.service.js';
 import { resolveWholesaleSetting, wholesaleMinimumState } from './wholesaleMinimum.service.js';
+import { codAvailabilityFor } from './deliveryMethod.service.js';
 
 // Aggregate the existing documents. No fourth cart, migration or client prices.
 export const buildCustomerBasket = async ({ userId, user, destination, session, preview = false, couponCode }) => {
@@ -60,7 +61,9 @@ export const buildCustomerBasket = async ({ userId, user, destination, session, 
   if (preview && groups.some(group => group.requestedMode === 'same_day' && group.deliveryMode !== 'same_day')) warnings.push('Same-day delivery is no longer available. Choose Scheduled or review your basket.');
   const valid = !warnings.length && groups.every(group => group.items.every(item => item.available !== false));
   // Retail and Wholesale were priced separately above; the COD fee is once for the whole basket.
-  if (valid) { const codSetting = await resolveCodChargeSetting(); checkoutCodFees(groups, codSetting).forEach((fee, index) => { groups[index].codFee = fee; }); }
+  // Cash on Delivery is refused for the whole basket when any delivery is Self Delivery (prepaid only).
+  const cod = codAvailabilityFor(groups.map(group => group.deliveryMethod));
+  if (valid && cod.available) { const codSetting = await resolveCodChargeSetting(); checkoutCodFees(groups, codSetting).forEach((fee, index) => { groups[index].codFee = fee; }); }
   const totals = valid ? groups.reduce((total, group) => ({
     subtotal: sumMoney(total.subtotal, group.subtotal), deliveryCharge: sumMoney(total.deliveryCharge, group.deliveryCharge),
     sameDayPremium: sumMoney(total.sameDayPremium, group.sameDayFee || 0, group.sellerIncentive || 0),
@@ -79,6 +82,6 @@ export const buildCustomerBasket = async ({ userId, user, destination, session, 
     lines: group.items.map(item => String(item.itemId)),
   })))).digest('hex') : null;
   return { groups, items: groups.flatMap(group => group.items), totals, valid, warnings,
-    purchaseMode: 'basket', quoteHash: wholesaleHash, basketHash, needsDeliveryChoice: false,
+    purchaseMode: 'basket', quoteHash: wholesaleHash, basketHash, needsDeliveryChoice: false, payment: { cod },
     cartSnapshots: carts.filter(cart => cart.items?.length).map(cart => ({ id: cart._id, version: cart.__v ?? 0, channel: cart.channel })) };
 };

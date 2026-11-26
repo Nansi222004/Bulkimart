@@ -17,6 +17,9 @@ const STATES = [
 const letters = value => String(value || '').toLowerCase().replace(/&/g, 'and').replace(/[^a-z]/g, '');
 const LOOKUP = new Map(STATES.flatMap(([code, name, aliases]) => [letters(name), ...aliases].map(key => [key, { code, name }])));
 
+/** Every state / union territory name, in GST code order (for pickers). */
+export const INDIAN_STATE_NAMES = STATES.map(([, name]) => name);
+
 /** `{ code, name }` for a typed state, or null when it cannot be recognised. */
 export const resolveIndianState = value => LOOKUP.get(letters(value)) || null;
 

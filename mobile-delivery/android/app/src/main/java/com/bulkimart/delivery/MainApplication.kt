@@ -8,6 +8,8 @@ import com.facebook.react.ReactHost
 import com.facebook.react.ReactNativeApplicationEntryPoint.loadReactNative
 import com.facebook.react.defaults.DefaultReactHost.getDefaultReactHost
 import com.bulkimart.delivery.otp.OtpAutofillPackage
+import com.bulkimart.delivery.alert.OrderAlertModule
+import com.bulkimart.delivery.alert.OrderAlertPackage
 
 class MainApplication : Application(), ReactApplication {
 
@@ -20,6 +22,8 @@ class MainApplication : Application(), ReactApplication {
           // add(MyReactNativePackage())
           // Phone Number Hint + SMS Retriever OTP autofill (local module, see ./otp).
           add(OtpAutofillPackage())
+          // Ringing for new offers + the "New order offers" notification channel (local module, see ./alert).
+          add(OrderAlertPackage())
         },
     )
   }
@@ -28,6 +32,8 @@ class MainApplication : Application(), ReactApplication {
     super.onCreate()
     // Bundled Inter: phone font themes (e.g. handwriting fonts) must not restyle the app.
     ReactFontManager.getInstance().addCustomFont(this, "Inter", R.font.xml_inter)
+    // Created at every start (no-op once it exists) so offer pushes ring even before the app is opened again.
+    OrderAlertModule.ensureChannel(this)
     loadReactNative(this)
   }
 }

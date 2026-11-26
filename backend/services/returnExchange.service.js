@@ -123,6 +123,8 @@ const replacementLine = (item, ret) => {
     shgStoreId: item.shgStoreId,
     type: item.type,
     fulfillmentType: 'physical',
+    // Fulfilled the way the original purchase was (delivery methods); absent on older lines.
+    ...(item.deliveryMethod ? { deliveryMethod: item.deliveryMethod } : {}),
     stockReserved: true,
     // Same return terms as the original item; a replacement can be exchanged again but not refunded
     // (it was never paid for), which createReturnRequest enforces.
@@ -219,8 +221,12 @@ export const createExchangeReplacement = async (returnId) => {
       if (!sellable(product)) throw httpError(409, 'The product is no longer available', { code: EXCHANGE_PRODUCT_UNAVAILABLE });
 
       // A stock refusal (409 from the atomic decrement) is tagged so it converts to a refund below.
+      // An FBB line's replacement comes from the warehouse (reserved like a sale); others from the seller's stock.
+      let replacementWarehouseId;
       try {
-        await mutateInventory({ productId: ret.productId, variantId: ret.exchange.variantId || null, quantity: ret.quantity, session });
+        const moved = await mutateInventory({ productId: ret.productId, variantId: ret.exchange.variantId || null, quantity: ret.quantity, session,
+          deliveryMethod: item.deliveryMethod, warehouseId: order.origin?.warehouseId, reference: { referenceType: 'return', referenceId: ret._id } });
+        replacementWarehouseId = moved?.warehouseId;
       } catch (err) {
         if (err?.status === 409) throw httpError(409, err.message, { code: EXCHANGE_OUT_OF_STOCK });
         throw err;
@@ -248,6 +254,9 @@ export const createExchangeReplacement = async (returnId) => {
         paymentMethod: PAYMENT_METHOD.WALLET,
         paymentId: payment._id,
         deliveryType: order.deliveryType,
+        ...(order.deliveryMethod ? { deliveryMethod: order.deliveryMethod, fulfillmentOwner: order.fulfillmentOwner } : {}),
+        // FBB: shipped from the warehouse holding the replacement; no FBB charge terms (replacements are not charged).
+        ...(item.deliveryMethod === 'fbb' ? { origin: { kind: 'warehouse', warehouseId: replacementWarehouseId }, fbb: { status: 'awaiting_acceptance' } } : {}),
         fulfillment: order.fulfillment?.assignmentPolicy ? { assignmentPolicy: order.fulfillment.assignmentPolicy } : undefined,
         delivery: order.delivery ? { mode: order.delivery.mode, standardFee: 0, fee: 0, sellerIncentive: 0, riderPayoutQuoted: order.delivery.riderPayoutQuoted, distanceKm: order.delivery.distanceKm } : undefined,
         exchange: { returnId: ret._id, returnNumber: ret.returnNumber, originalOrderId: order._id, originalItemId: item._id },

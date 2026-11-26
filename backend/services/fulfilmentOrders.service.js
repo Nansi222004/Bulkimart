@@ -12,6 +12,7 @@ import {
   PAYMENT_METHOD,
   CHANNEL,
   DELIVERY_MODE,
+  DELIVERY_METHOD,
 } from '../constants/enums.js';
 import { buildReturnPolicySnapshotsFor } from './returnPolicy.service.js';
 import { applyProductReturnSettings } from './productReturns.service.js';
@@ -19,6 +20,9 @@ import { debitWallet } from './wallet.service.js';
 
 import { WALLET_TRANSACTION_TYPE, WALLET_REFERENCE_TYPE } from '../models/WalletLedger.js';
 import { mutateInventory } from './inventory.service.js';
+import { assertPaymentMethodAllowed } from './deliveryMethod.service.js';
+import { chargeTermsForNewOrder } from './fbbCharges.service.js';
+import { assertFbbWarehouseServiceable, blockedWarehouseIds } from './fbbServiceability.service.js';
 
 /**
  * One basket becomes several deliveries; one payment covers them all.
@@ -66,6 +70,7 @@ const linesOf = (group) => group.items.map((i) => ({
   sellerId: i.sellerId,
   shgStoreId: i.shgStoreId,
   additionalMessage: i.additionalMessage || '',
+  ...(i.deliveryMethod ? { deliveryMethod: i.deliveryMethod } : {}),
   ...(i.returnOption ? {
     returnOption: i.returnOption,
     returnPolicySnapshot: i.returnPolicySnapshot,
@@ -164,9 +169,12 @@ const deliverySnapshotOf = (group) => buildDeliverySnapshot({
  * @returns {{ orders: Order[], payment: Payment, groupRef: string }}
  */
 export const createOrdersFromGroups = async ({
-  user, address, groups, paymentMethod, notes, session, groupRef = newGroupRef(), tip = 0, purchaseMode = 'retail', cartSnapshots, beforeWrite = () => {},
+  user, address, groups, paymentMethod, notes, session, groupRef = newGroupRef(), tip = 0, purchaseMode = 'retail', cartSnapshots, beforeWrite = () => {}, fbbRoutes = null,
 }) => {
   if (!groups?.length) throw httpError(400, 'There is nothing in your basket to order');
+  // Self Delivery is prepaid only: a COD checkout holding any Self Delivery group is refused before any write.
+  // The method comes from the live product (fulfilmentGroups), never from the client.
+  assertPaymentMethodAllowed(paymentMethod, groups.map((g) => g.deliveryMethod));
   /**
    * COD handling fee, once per checkout, from the live admin setting — never a client figure
    * or a cached preview. Online payment never carries it. It is priced on all physical
@@ -217,12 +225,26 @@ export const createOrdersFromGroups = async ({
   });
 
   // ---- stock, all of it, before any of it -------------------------------
-  for (const g of groups) {
+  // FBB lines reserve warehouse stock; the warehouse that holds it becomes the order's pickup origin.
+  const groupWarehouse = new Map();
+  for (const [groupIndex, g] of groups.entries()) {
     for (const l of linesOf(g)) {
       beforeWrite('inventory.update');
-      await mutateInventory({ productId: l.productId, variantId: l.variantId, quantity: l.qty, session });
+      const moved = await mutateInventory({ productId: l.productId, variantId: l.variantId, quantity: l.qty, session, deliveryMethod: l.deliveryMethod, actorType: 'customer', fbbExcludeWarehouseIds: blockedWarehouseIds(fbbRoutes) });
+      if (l.deliveryMethod === DELIVERY_METHOD.FBB) {
+        const previous = groupWarehouse.get(groupIndex);
+        if (previous && String(previous) !== String(moved.warehouseId)) throw httpError(409, 'These items are stored in different warehouses; order them separately for now.');
+        groupWarehouse.set(groupIndex, moved.warehouseId);
+      }
     }
   }
+  // The reservation chose each FBB order's warehouse; refuse one that cannot reach the address (pre-checked by the caller).
+  for (const warehouseId of groupWarehouse.values()) assertFbbWarehouseServiceable(fbbRoutes, warehouseId);
+  // FBB service rates are frozen at placement (seller-paid; never added to the customer's bill).
+  const hasFbb = groups.some((g) => g.deliveryMethod === DELIVERY_METHOD.FBB);
+  const fbbTerms = hasFbb ? await chargeTermsForNewOrder(session) : null;
+  // FBB is a paid service: without rates in force the order could never be billed, so it is not placed.
+  if (hasFbb && !fbbTerms) throw httpError(409, 'Fulfilled by Bulkimart items are not available right now. Please review your cart.');
 
   /**
    * One tip for the basket, paid to one rider.
@@ -302,8 +324,14 @@ export const createOrdersFromGroups = async ({
       paymentId: payment._id,
       groupRef,
       deliveryType: g.deliveryType,
+      // Frozen at placement; the group has exactly one method (fulfilmentGroups.service.js::groupKeyFor).
+      ...(g.deliveryMethod ? { deliveryMethod: g.deliveryMethod, fulfillmentOwner: g.fulfillmentOwner } : {}),
+      ...(g.deliveryMethod === DELIVERY_METHOD.FBB ? {
+        origin: { kind: 'warehouse', warehouseId: groupWarehouse.get(groupIndex) },
+        fbb: { status: 'awaiting_acceptance', ...(fbbTerms ? { chargeTerms: fbbTerms } : {}) },
+      } : {}),
       fulfillment: g.channel === CHANNEL.ECOM && g.deliveryMode !== DELIVERY_MODE.SAME_DAY
-        ? { assignmentPolicy: 'seller_after_acceptance' } : undefined,
+        ? { assignmentPolicy: g.deliveryMethod === DELIVERY_METHOD.FBB ? 'warehouse_after_acceptance' : 'seller_after_acceptance' } : undefined,
       delivery: deliverySnapshotOf(g),
       status: ORDER_STATUS.PLACED,
       timeline: [{ status: ORDER_STATUS.PLACED, timestamp: new Date(), note: 'Order placed' }],

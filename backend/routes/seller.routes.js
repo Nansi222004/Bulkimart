@@ -18,11 +18,17 @@ import {
   updateSalesChannels,
   requestWholesaleChannel,
   getSellerFaqs,
-  answerSellerFaq
+  answerSellerFaq,
+  getSelfDeliveryArea,
+  updateSelfDeliveryArea,
+  getSellerFbb,
+  startSellerFbbPayment,
+  verifySellerFbbPayment,
 } from '../controllers/seller.controller.js';
 import { listSellerReturns, getSellerReturn, sellerDecideReturnCtrl, assignRiderForReturn, sellerConfirmReturnReceived, selectReturnPickup, refreshReturnCourier, cancelReturnPickup, getReturnPickupOptions } from '../controllers/return.controller.js';
 import {
   getFulfillmentOptions, selectManualFulfillment, createShiprocketShipment,
+  dispatchExternalCourier, updateExternalCourier,
 } from '../controllers/fulfillment.controller.js';
 import { protect, requireSellerSession } from '../middlewares/auth.middleware.js';
 import { requireApprovedSeller } from '../middlewares/vendor.middleware.js';
@@ -62,6 +68,10 @@ router.get('/public/:id', async (req, res) => {
         phone,
         address,
         city: s.storeDetails?.city || '',
+        // Where the store is, for the Quick delivery time at checkout. The same point is already
+        // shown to buyers as the store pin on the order-tracking map.
+        ...(Number.isFinite(s.storeDetails?.lat) && Number.isFinite(s.storeDetails?.lng)
+          ? { lat: s.storeDetails.lat, lng: s.storeDetails.lng } : {}),
       },
     });
   } catch (err) {
@@ -122,6 +132,15 @@ router.patch('/orders/:id/status', requireApprovedSeller, updateOrderStatus);
 router.get('/orders/:id/fulfillment-options', requireApprovedSeller, getFulfillmentOptions);
 router.post('/orders/:id/fulfillment/manual', requireApprovedSeller, selectManualFulfillment);
 router.post('/orders/:id/fulfillment/shiprocket', requireApprovedSeller, createShiprocketShipment);
+// Self Delivery: the seller's own courier (tracking required) and the area they deliver to.
+router.post('/orders/:id/fulfillment/external', requireApprovedSeller, dispatchExternalCourier);
+router.patch('/orders/:id/fulfillment/external', requireApprovedSeller, updateExternalCourier);
+router.get('/self-delivery-area', requireApprovedSeller, getSelfDeliveryArea);
+router.put('/self-delivery-area', requireApprovedSeller, updateSelfDeliveryArea);
+// Fulfilled by Bulkimart: warehouse stock and receipts (read only), charges, and advance payment of what is owed.
+router.get('/fbb', requireApprovedSeller, getSellerFbb);
+router.post('/fbb/payments', requireApprovedSeller, startSellerFbbPayment);
+router.post('/fbb/payments/verify', requireApprovedSeller, verifySellerFbbPayment);
 router.get('/orders/:id/financial-breakdown', requireApprovedSeller, getSellerOrderFinance);
 router.get('/orders/:id/invoice', requireApprovedSeller, getSellerOrderInvoice);
 router.get('/orders/:id/credit-notes', requireApprovedSeller, getSellerOrderCreditNotes);

@@ -3,6 +3,18 @@ import { getMessaging } from 'firebase-admin/messaging';
 import { getFirebaseApp } from '../config/firebaseAdmin.js';
 import { isMockIntegrationEnabled } from '../config/runtime.js';
 
+/**
+ * Rider offers ring: the delivery app creates the "New order offers" channel (RIDER_OFFER_CHANNEL, high importance,
+ * pop-up, its own ringtone — mobile-delivery/.../alert/OrderAlertModule.kt). Offers go there at high priority so a
+ * closed app still pops up and rings. The rider's "Send test" push rings too, so riders can check the sound.
+ * Older delivery app builds without that channel fall back to Android's default channel (default sound).
+ */
+export const RIDER_OFFER_CHANNEL = 'rider_offers_v1';
+const RIDER_RING_EVENTS = new Set(['RIDER_PING', 'RIDER_REQUESTED', 'PARCEL_OFFER', 'RIDER_ASSIGNED']);
+// notifyRider sends audience 'rider'; the rider app's test push sends its session role 'delivery'.
+const RIDER_AUDIENCES = new Set(['rider', 'delivery']);
+const ringsRider = (data) => RIDER_AUDIENCES.has(data?.audience) && (RIDER_RING_EVENTS.has(data?.event) || data?.test === 'true');
+
 // Web display belongs to the worker so it can enforce logout before showing
 // anything. Firebase's automatic notification payload bypasses that check.
 export const pushMessage = ({ title, body, data, image, web }) => {
@@ -18,6 +30,22 @@ export const pushMessage = ({ title, body, data, image, web }) => {
     return raw ? String(raw).replace(/[^a-zA-Z0-9_-]/g, '_').slice(0, 32) : undefined;
   };
   const topic = getTopic();
+  const ring = !web && ringsRider(data);
+  const android = {
+    ...(topic ? { collapseKey: topic } : {}),
+    ...(ring ? {
+      priority: 'high',
+      ttl: 2 * 60 * 1000, // an offer is only open for about a minute; a late delivery would ring for nothing
+      notification: {
+        channelId: RIDER_OFFER_CHANNEL,
+        sound: 'order_alert', // res/raw/order_alert; Android 8+ takes the sound from the channel
+        priority: 'max',
+        visibility: 'public',
+        defaultVibrateTimings: false,
+        vibrateTimingsMillis: [0, 600, 400, 600, 400, 600],
+      },
+    } : {}),
+  };
 
   return web
     ? {
@@ -27,10 +55,8 @@ export const pushMessage = ({ title, body, data, image, web }) => {
     : {
         notification: { title, body, ...(image ? { image } : {}) },
         data,
-        ...(topic ? {
-          android: { collapseKey: topic },
-          apns: { headers: { 'apns-collapse-id': topic } },
-        } : {}),
+        ...(Object.keys(android).length ? { android } : {}),
+        ...(topic ? { apns: { headers: { 'apns-collapse-id': topic } } } : {}),
       };
 };
 

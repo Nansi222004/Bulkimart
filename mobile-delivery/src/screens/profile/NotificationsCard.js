@@ -1,10 +1,11 @@
 import React, { useCallback, useEffect, useState } from 'react';
-import { StyleSheet, View } from 'react-native';
+import { StyleSheet, Switch, View } from 'react-native';
 import { Text } from '../../components/AppText';
 import Card from '../../components/Card';
 import AppButton from '../../components/AppButton';
 import { InlineNotice } from '../../components/StateViews';
 import { lastPushResult, pushServerStatus, registerPush, sendTestPush } from '../../services/push';
+import { isRingingEnabled, openOfferSoundSettings, ringingSupported, setRingingEnabled } from '../../services/orderAlert';
 import { formatDateTime } from '../../utils/format';
 import { spacing, type } from '../../theme';
 
@@ -23,6 +24,9 @@ export default function NotificationsCard({ toast }) {
   const [last, setLast] = useState(null);
   const [error, setError] = useState('');
   const [busy, setBusy] = useState('');
+  const [ringOn, setRingOn] = useState(true);
+  useEffect(() => { isRingingEnabled().then(setRingOn); }, []);
+  const toggleRing = (value) => { setRingOn(value); setRingingEnabled(value); };
 
   const check = useCallback(async () => {
     setError('');
@@ -73,6 +77,19 @@ export default function NotificationsCard({ toast }) {
         <AppButton small title="Re-register" variant="outline" loading={busy === 'register'} disabled={Boolean(busy)} onPress={reRegister} style={styles.flex} />
         <AppButton small title="Send test" loading={busy === 'test'} disabled={Boolean(busy) || !registered} onPress={test} style={styles.flex} />
       </View>
+      {ringingSupported() ? (
+        <>
+          <View style={styles.switchRow}>
+            <View style={styles.flex}>
+              <Text style={type.label}>Ring for new offers</Text>
+              <Text style={type.small}>Plays the offer ringtone until you accept or decline, while the app is open.</Text>
+            </View>
+            <Switch value={ringOn} onValueChange={toggleRing} accessibilityLabel="Ring for new offers" />
+          </View>
+          <AppButton small title="Offer sound with app closed" variant="outline" onPress={openOfferSoundSettings} />
+          <Text style={type.small}>Opens Android's settings for "New order offers" (sound, volume, pop-up). Also set Battery → No restrictions for this app, so offers reach you when it is closed.</Text>
+        </>
+      ) : null}
     </Card>
   );
 }
@@ -83,4 +100,5 @@ const styles = StyleSheet.create({
   bad: { color: '#b91c1c' },
   row: { flexDirection: 'row', gap: spacing.sm, marginTop: spacing.sm },
   flex: { flex: 1 },
+  switchRow: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm, marginTop: spacing.md },
 });

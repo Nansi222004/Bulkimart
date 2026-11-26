@@ -17,15 +17,31 @@ import { notifyUser, notifyAllAdmins, NOTIFICATION_EVENT } from './notification.
 export const SETUP_LOCK_STATES = ['creating', 'assigning', 'reconciliation_required'];
 
 /**
- * Courier COD is not settleable yet (audit H1): COD cash is verified only through a rider's code-verified
- * delivery (orderFinance.service.js::recordCodEvent), so a Shiprocket COD order could never mark its payment
- * paid, post the seller's earning, or refund a return. Until courier remittance is reconciled, new Shiprocket
- * bookings (and the Quick Shiprocket fee that precedes them) are refused for COD orders. Rider-delivered COD
- * is unaffected, a Delivered scan never marks COD paid, and existing records are not changed.
+ * Shiprocket COD (invariant C1, amended 2026-11-25 with approval).
+ *
+ * Audit H1 blocked every Shiprocket COD booking because courier cash had no settlement path. That path now
+ * exists: COD cash on a courier order is settled ONLY by a finance admin recording the provider's remittance
+ * (orderFinance.service.js::recordCourierCodRemittance, C2–C6). A Delivered scan never marks COD paid, and
+ * seller earnings still wait for verified cash (L2).
+ *
+ * So a COD booking is allowed only when ALL of these hold; otherwise it stays blocked as before:
+ *   - SHIPROCKET_COD_ENABLED=true (separate switch, off by default; production stays off until the account's
+ *     remittance mode — gross or net of charges — is verified),
+ *   - a Shop All order (Quick Commerce Shiprocket COD stays blocked, and so does its prepaid fee step),
+ *   - not Self Delivery (prepaid only) and not an exchange replacement,
+ *   - a configured v2 finance snapshot, which is what a remittance line settles against.
+ * Rider-delivered COD is unaffected. Existing records are not changed.
  */
 export const SHIPROCKET_COD_UNAVAILABLE = 'SHIPROCKET_COD_UNAVAILABLE';
 export const SHIPROCKET_COD_MESSAGE = 'Cash on Delivery orders cannot be shipped with Shiprocket yet, because courier cash collection is not reconciled in Bulkimart. Deliver this order with a Bulkimart delivery partner, or contact support.';
-export const shiprocketCodBlocked = (order) => order?.paymentMethod === 'cod';
+export const shiprocketCodEnabled = () => String(process.env.SHIPROCKET_COD_ENABLED || '').trim().toLowerCase() === 'true';
+export const shiprocketCodBlocked = (order) => {
+  if (order?.paymentMethod !== 'cod') return false;
+  if (!shiprocketCodEnabled() || order.type !== 'ecommerce' || order.exchange?.returnId) return true;
+  if (order.deliveryMethod === 'self_delivery') return true;
+  const snapshot = order.financialSnapshot;
+  return snapshot?.version !== 2 || snapshot?.state !== 'configured';
+};
 export const assertShiprocketCodAllowed = (order) => {
   if (shiprocketCodBlocked(order)) throw httpError(409, SHIPROCKET_COD_MESSAGE, { code: SHIPROCKET_COD_UNAVAILABLE });
 };
@@ -225,6 +241,11 @@ export async function applyForwardTracking({ awb, shipmentId, statusId, status, 
     }
     await logCourierEvent({ ...base, orderId: order._id, outcome, detail: [statusChanged && `order → ${statusChanged}`, exceptionOpened && `exception ${sr.exception.type}`, exceptionClosed && 'exception closed by delivery'].filter(Boolean).join('; ') || undefined });
 
+    // FBB: the courier's first pickup scan is when the parcel left the warehouse (recorded once).
+    if (statusChanged && order.deliveryMethod === 'fbb' && !order.fbb?.handedOverAt) {
+      import('./fbbFulfillment.service.js').then(({ recordFbbHandoff, reportHandoffFailure }) => recordFbbHandoff(order._id, `courier_scan:${resolvedId}`)
+        .catch((error) => reportHandoffFailure(order, error))).catch(() => {});
+    }
     if (statusChanged) {
       import('../socket/rooms.js').then(({ emitToUser }) => emitToUser(order.userId, 'order_status_updated', { orderId: order._id, status: order.status, timeline: order.timeline })).catch(() => {});
       notifyUser(order.userId, {
@@ -330,7 +351,7 @@ export async function resolveShipmentException({ orderId, adminId, decision, res
     const { cancelOrderAndRestore } = await import('../controllers/order.controller.js');
     const result = await cancelOrderAndRestore(orderId, {
       reason: `Shipment ${type.replace(/_/g, ' ').toLowerCase()}: ${reason}`, cancelledBy: 'admin',
-      courierException: { token, restock }, suppressNotification: Boolean(message),
+      courierException: { token, restock, goodsBack: RESTOCKABLE_EXCEPTIONS.includes(type) }, suppressNotification: Boolean(message),
     });
     if (!result.ok) {
       await Order.updateOne({ _id: orderId, 'shiprocket.exception.resolution.token': token }, { $set: { 'shiprocket.exception.status': 'open' }, $unset: { 'shiprocket.exception.resolution': 1 } });

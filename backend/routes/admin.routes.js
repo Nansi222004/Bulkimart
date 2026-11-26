@@ -12,7 +12,7 @@ import { getCommissionConfiguration, createCommissionConfiguration, listFinanceO
   writeOffCodShortage, getFinanceOverview, getFinancePolicySettings, saveFinancePolicySettings,
   getTaxReport, getAccountingJournal, getTrialBalance,
   getHistoricalBatches, postHistoricalBatch, reviewHistoricalBatchRoute, applyHistoricalBatchRoute, releaseHistoricalBatchRoute,
-  getCourierCosts, recordCourierCost, disputeCourierCharge, recordCourierCodRemittanceAdmin, listCourierCodRemittances, getCourierCodReport } from '../controllers/financeWorkflow.controller.js';
+  getCourierCosts, recordCourierCost, disputeCourierCharge, recordCourierCodRemittanceAdmin, listCourierCodRemittances, getCourierCodReport, reapplyCourierCodRemittanceAdmin } from '../controllers/financeWorkflow.controller.js';
 import { getShiprocketCapabilities } from '../services/shiprocket.service.js';
 import { getPaymentRecovery, processRefundRecovery, reconcilePaymentCreation, listUnresolvedPaymentAttempts } from '../controllers/paymentRecovery.controller.js';
 import { paymentRecoveryLimiter } from '../middlewares/rateLimit.middleware.js';
@@ -78,7 +78,8 @@ import {
 } from '../controllers/accountManagement.controller.js';
 import { getManualAssignmentQueue, assignDeliveryPartner, setStorePickupLocation } from '../controllers/deliveryAssignment.controller.js';
 import { getLiveDispatch, getDeliveryHistory, exportDeliveryHistory } from '../controllers/adminDeliveryOps.controller.js';
-import { getShipmentExceptions, getShipmentEvents, resolveShipmentExceptionAdmin } from '../controllers/shipmentException.controller.js';
+import { getShipmentExceptions, getShipmentEvents, resolveShipmentExceptionAdmin, getExternalShipmentIssues, resolveExternalShipmentAdmin } from '../controllers/shipmentException.controller.js';
+import adminFbbRoutes from './adminFbb.routes.js';
 import {
   getQuickCommerceDeliveryConfigAdmin, updateQuickCommerceDeliveryConfigAdmin,
   listQuickShiprocketFeesAdmin,
@@ -92,6 +93,8 @@ const router = express.Router();
 // Every admin route is behind auth + admin check — applied once here.
 router.use(protect, requireAdmin);
 router.use('/campaigns', marketingPermission);
+// Fulfilled by Bulkimart: warehouse (manage_warehouse) and FBB charges (manage_finance). See routes/adminFbb.routes.js.
+router.use('/fbb', adminFbbRoutes);
 // All finance surfaces, including legacy aliases and recovery controls.
 router.use((req, res, next) => {
   if (/^\/(finance(?:\/|$)|reports(?:\/|$)|vendor-(?:sales|earnings|payouts)(?:\/|$)|seller-(?:balances|ledger)(?:\/|$)|orders\/[^/]+\/financial-breakdown|financial-reconciliation|quick-commerce-(?:third-party-config|shiprocket-fees)|payment-(?:refund-obligations|attempt-recovery|recovery)|delivery-payouts|rider-payouts|rider-wallets(?:\/|$)|delivery-rates|delivery-charge|cod-charge|returns\/[^/]+\/(?:refund|cod-settle)|shipment-exceptions(?:\/|$))/.test(req.path)) return requireFinancePermission(req, res, next);
@@ -108,6 +111,7 @@ router.post('/finance/orders/:id/cod/verify', verifyCodRemittance);
 // Courier COD remittance (finance permission via the /finance prefix): record from the provider report, list, and a
 // read-only reconciliation report of every courier COD order.
 router.post('/finance/courier-cod/remittances', recordCourierCodRemittanceAdmin);
+router.post('/finance/courier-cod/remittances/:id/reapply', reapplyCourierCodRemittanceAdmin);
 router.get('/finance/courier-cod/remittances', listCourierCodRemittances);
 router.get('/finance/courier-cod/report', getCourierCodReport);
 router.post('/finance/orders/:id/cod/dispute', disputeCod);
@@ -179,6 +183,9 @@ router.patch('/sellers/:id/third-party-fulfillment', setSellerThirdPartyFulfillm
 // Shiprocket shipment exceptions (RTO / lost / damaged / destroyed / cancelled / undelivered). Finance permission:
 // resolving one can cancel and refund the order.
 router.get('/shipment-exceptions', getShipmentExceptions);
+// Self Delivery (seller's own courier): same finance permission as Shiprocket exceptions.
+router.get('/shipment-exceptions/external', getExternalShipmentIssues);
+router.post('/shipment-exceptions/:orderId/external', resolveExternalShipmentAdmin);
 router.get('/shipment-exceptions/:orderId/events', getShipmentEvents);
 router.post('/shipment-exceptions/:orderId/resolve', resolveShipmentExceptionAdmin);
 router.patch('/sellers/:id/wholesale', decideSellerWholesaleChannel);

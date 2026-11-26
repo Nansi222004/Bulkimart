@@ -301,6 +301,11 @@ const OrdersPage = () => {
                       {order.delivery.icon} {order.delivery.text}
                     </span>
                   )}
+                  {order.raw.deliveryMethod === 'fbb' && (
+                    <span className="order-mall-badge" style={{ marginLeft: 6, background: '#e0e7ff', color: '#3730a3' }}>
+                      Fulfilled by Bulkimart
+                    </span>
+                  )}
                 </div>
 
                 <div className="order-card-right" style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: 6 }}>

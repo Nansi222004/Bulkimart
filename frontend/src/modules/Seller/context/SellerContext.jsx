@@ -397,6 +397,8 @@ export const SellerProvider = ({ children }) => {
       videos: Array.isArray(raw.videos) ? raw.videos : [],
       sameDayEnabled: Boolean(raw.sameDay?.enabled),
       processingMinutes: raw.sameDay?.processingMinutes ?? '',
+      // Absent on every product listed before delivery methods existed = Easy Ship.
+      deliveryMethod: raw.deliveryMethod || 'easy_ship',
       returnable: raw.type === 'grocery' ? Boolean(raw.returnable) : raw.returnSettings?.enabled !== false,
       returnWindowDays: raw.returnSettings?.windowDays ?? '',
       ...easyReturnsFormFromProduct(raw),
@@ -407,7 +409,7 @@ export const SellerProvider = ({ children }) => {
   const startNewProduct = () => {
     productDraftGeneration.current++;
     setEditingProduct(null); setProductError('');
-    setNewProductForm({ fulfillmentType: 'physical', name: '', categoryId: '', desc: '', brandName: '', gstRate: 0, gstPriceType: 'inclusive', ebookPrice: '', ebookMrp: '', ebookStock: '', author: '', language: '', licenseTerms: '', variants: [{ name: 'Default', price: '', mrp: '', stock: '', unit: 'piece', weight: '' }], sameDayEnabled: false, processingMinutes: '', returnable: false, ...easyReturnsFormDefaults });
+    setNewProductForm({ fulfillmentType: 'physical', name: '', categoryId: '', desc: '', brandName: '', gstRate: 0, gstPriceType: 'inclusive', ebookPrice: '', ebookMrp: '', ebookStock: '', author: '', language: '', licenseTerms: '', variants: [{ name: 'Default', price: '', mrp: '', stock: '', unit: 'piece', weight: '' }], sameDayEnabled: false, processingMinutes: '', deliveryMethod: 'easy_ship', returnable: false, ...easyReturnsFormDefaults });
     setShowAddProductModal(true);
   };
 
@@ -501,6 +503,13 @@ export const SellerProvider = ({ children }) => {
             ? { enabled: true, processingMinutes: Number(form.processingMinutes) }
             : { enabled: false }
         ));
+      }
+
+      // Delivery method (Shop All, physical): sent only when the seller changed it, so an
+      // untouched edit's request is exactly what it was before this feature.
+      if (form.fulfillmentType !== 'digital' && (editingProduct?.type || activeChannel) === 'ecommerce'
+        && form.deliveryMethod && form.deliveryMethod !== (editingProduct?.deliveryMethod || 'easy_ship')) {
+        fd.append('deliveryMethod', form.deliveryMethod);
       }
 
       // Quick Commerce only — the backend ignores this for any other
@@ -955,6 +964,35 @@ export const SellerProvider = ({ children }) => {
       return { ok: true, message: body.message, data: body.data };
     } catch (err) { return { ok: false, message: err.message }; }
   }, [fetchSellerOrders]);
+
+  // Self Delivery: hand the parcel to the seller's own courier (tracking required).
+  const dispatchExternalCourier = useCallback(async (orderId, details) => {
+    try {
+      const res = await fetch(apiUrl(`/api/sellers/orders/${orderId}/fulfillment/external`), {
+        method: 'POST', headers: { ...authHeader(), 'Content-Type': 'application/json' }, body: JSON.stringify(details),
+      });
+      const body = await res.json().catch(() => ({}));
+      if (!res.ok) return { ok: false, message: body.message || 'Could not save the courier hand-off' };
+      await fetchSellerOrders();
+      const fresh = await fetchSellerOrder(orderId);
+      if (fresh.ok) setSelectedOrder(current => String(current?._id) === String(orderId) ? fresh.data : current);
+      return { ok: true, message: body.message };
+    } catch (err) { return { ok: false, message: err.message }; }
+  }, [fetchSellerOrders]);
+
+  // Self Delivery after hand-off: correct tracking or report a failed attempt.
+  const updateExternalCourier = useCallback(async (orderId, body) => {
+    try {
+      const res = await fetch(apiUrl(`/api/sellers/orders/${orderId}/fulfillment/external`), {
+        method: 'PATCH', headers: { ...authHeader(), 'Content-Type': 'application/json' }, body: JSON.stringify(body),
+      });
+      const result = await res.json().catch(() => ({}));
+      if (!res.ok) return { ok: false, message: result.message || 'Could not update the courier delivery' };
+      const fresh = await fetchSellerOrder(orderId);
+      if (fresh.ok) setSelectedOrder(current => String(current?._id) === String(orderId) ? fresh.data : current);
+      return { ok: true, message: result.message };
+    } catch (err) { return { ok: false, message: err.message }; }
+  }, []);
 
   // Its own effect rather than a line in the one above, because that effect is
   // declared before this callback exists — naming it there would read the
@@ -1472,6 +1510,14 @@ export const SellerProvider = ({ children }) => {
         }));
       }
 
+      // Delivery method (Shop All, physical). Easy Ship is the default and is not sent.
+      if (!form.sellingChannels?.includes('wholesale') && form.fulfillmentType !== 'digital' && activeChannel === 'ecommerce'
+        && form.deliveryMethod && form.deliveryMethod !== 'easy_ship') {
+        fd.append('deliveryMethod', form.deliveryMethod);
+        // A new FBB listing carries the charge version the seller accepted (the server refuses a stale one).
+        if (form.deliveryMethod === 'fbb' && form.fbbChargeVersion) fd.append('fbbChargeVersion', String(form.fbbChargeVersion));
+      }
+
       // Quick Commerce only — see the identical guard in submitProductEdit.
       if (form.fulfillmentType !== 'digital' && !(form.sellingChannels?.length === 1 && form.sellingChannels[0] === 'wholesale') && ['grocery','ecommerce'].includes(activeChannel)) {
         fd.append('returnable', form.returnable ? 'true' : 'false');
@@ -1801,6 +1847,8 @@ export const SellerProvider = ({ children }) => {
         getFulfillmentOptions,
         selectManualFulfillment,
         createShiprocketShipment,
+        dispatchExternalCourier,
+        updateExternalCourier,
         getOrderFinancialBreakdown,
         fetchSellerKpis,
         sellerProfile,

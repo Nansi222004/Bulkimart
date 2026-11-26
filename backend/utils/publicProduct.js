@@ -8,6 +8,8 @@ export const publicProduct = (document) => {
   if (!source) return source;
   if (!retailAllowed(source)) return null;
   const result = pick(source, fields);
+  // Only the customer-facing fact: Bulkimart packs and ships it. Other delivery methods stay internal.
+  if (source.deliveryMethod === 'fbb') result.fulfilledByBulkimart = true;
   if (source.variants) result.variants = source.variants.map((variant) => pick(variant, ['_id', 'name', 'price', 'mrp', 'stock', 'unit', 'weight', 'sku', 'attributes', 'options', 'images']));
   if (source.digital) result.digital = pick(source.digital, ['author', 'language', 'format', 'licenseTerms']);
   if (source.sellerId) result.sellerId = source.sellerId.businessName !== undefined || source.sellerId.storeDetails !== undefined

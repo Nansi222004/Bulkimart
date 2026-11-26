@@ -65,6 +65,10 @@ export function orderDetailSections(order) {
     <section className="seller-detail-manual"><h2>Bulkimart delivery</h2>{delivery ? <><p>Rider: {delivery.rider?.name || 'Name not recorded'}<br />Contact: {delivery.rider?.phone || 'Not recorded'}<br />Assignment status: {delivery.status}<br />Assigned: {date(delivery.assignedAt)}</p>
       {delivery.completedAt && <p>Completed: {date(delivery.completedAt)} · Delivery OTP verified: {delivery.otpVerified ? 'Yes' : 'No'}</p>}</>
       : <p>{order.fulfillment?.method === 'manual' ? 'Sent to Bulkimart delivery partners. Waiting for a rider to accept.' : 'Manual delivery not assigned.'}</p>}</section>
+    {order.externalShipment && <section className="seller-detail-courier"><h2>Your courier</h2>
+      <p>Courier: {order.externalShipment.courierName}<br />Tracking ID: {order.externalShipment.awb}<br />Status: {String(order.externalShipment.status || '').replace(/_/g, ' ')}<br />Dispatched: {date(order.externalShipment.dispatchedAt)}{order.externalShipment.deliveredAt ? <><br />Delivered: {date(order.externalShipment.deliveredAt)}</> : null}</p>
+      <div className="seller-detail-links">{link(order.externalShipment.trackingUrl, 'Track shipment')}</div>
+      <p>Update the status from the order actions as the courier delivers it.</p></section>}
     <section className="seller-detail-courier"><h2>Courier shipment</h2>{shipment ? <><p>Provider: Shiprocket<br />Courier: {shipment.courier || 'Not assigned'}<br />Shipment: {shipment.shipmentId || 'Not created'}<br />AWB: {shipment.awb || 'Not assigned'}<br />Status: {shipment.status || 'Not recorded'}</p>
       <p>Registered pickup: {shipment.pickupLocation || order.store?.pickupLocation || 'Not recorded'}<br />{addressText(shipment.pickupAddress)}</p>
       <p>Destination: {addressText(order.shippingAddress)}</p>

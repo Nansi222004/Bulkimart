@@ -9,6 +9,7 @@ import { getFinancePolicy } from './financePolicy.service.js';
 import { moneyPaise } from '../utils/financeMoney.js';
 import { httpError } from '../utils/response.js';
 import { notifyAllAdmins, NOTIFICATION_EVENT } from './notification.service.js';
+import { settleFbbObligationsInSession } from './fbbCharges.service.js';
 
 /**
  * Reserve settlement-eligible seller funds for a manual bank transfer. Used by
@@ -43,6 +44,8 @@ export const createSellerPayoutRequest = async ({ sellerId, userId = null, amoun
       }
       const currentSeller = await Seller.findOne({ _id: sellerId, ...(userId ? { userId } : {}), status: 'approved' }).session(session);
       if (!currentSeller) throw httpError(403, 'Approved seller is required');
+      // Outstanding FBB service charges come out of eligible earnings first (services/fbbCharges.service.js).
+      await settleFbbObligationsInSession(currentSeller._id, session);
       const balances = await sellerBalances(currentSeller._id, { session });
       if (balances.held < 0) throw httpError(409, 'Outstanding seller adjustments require reconciliation');
       await assertSellerSettlementClear(currentSeller._id, session);

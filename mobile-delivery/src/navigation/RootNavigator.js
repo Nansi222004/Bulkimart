@@ -23,6 +23,8 @@ import NotificationsScreen from '../screens/notifications/NotificationsScreen';
 import { SupportScreen, TicketDetailScreen } from '../screens/support/SupportScreens';
 import SupportChatScreen from '../screens/support/SupportChatScreen';
 import PrivacyPolicyScreen from '../screens/profile/PrivacyPolicyScreen';
+import TrainingScreen from '../screens/profile/TrainingScreen';
+import TrainingPlayerScreen from '../screens/profile/TrainingPlayerScreen';
 import GoToScreen from '../screens/duty/GoToScreen';
 import { colors } from '../theme';
 
@@ -128,6 +130,8 @@ function ApprovedStack() {
         <Stack.Screen name="SupportChat" component={SupportChatScreen} options={{ title: 'Chat with Support' }} />
 
         <Stack.Screen name="PrivacyPolicy" component={PrivacyPolicyScreen} options={{ title: 'Privacy policy' }} />
+        <Stack.Screen name="Training" component={TrainingScreen} options={{ title: 'Training videos' }} />
+        <Stack.Screen name="TrainingPlayer" component={TrainingPlayerScreen} options={({ route }) => ({ title: route.params?.video?.title || 'Training video' })} />
       </Stack.Navigator>
       <OfferHost />
       <PushManager />

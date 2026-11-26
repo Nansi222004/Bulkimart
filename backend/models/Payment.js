@@ -16,6 +16,8 @@ const paymentSchema = new Schema(
     quotationVersion: Number,
     // Separate seller collection; never replaces the customer's order payment.
     quickFeeSnapshotId: { type: ObjectId, ref: 'QuickCommerceFinancialSnapshot' },
+    // Seller's advance payment of outstanding FBB service charges (services/fbbCharges.service.js). Exclusive purpose.
+    fbbObligationSellerId: { type: ObjectId, ref: 'Seller' },
     orderId:        { type: ObjectId, ref: "Order" },
 
     /**
@@ -141,6 +143,7 @@ const paymentSchema = new Schema(
 );
 
 paymentSchema.pre('validate', function () {
+  if (this.fbbObligationSellerId && (this.method !== 'online' || this.advertising || this.isWalletTopup || this.coinsUsed || this.coinDiscount || ['orderId','groupRef','subscriptionId','shgSubscriptionId','premiumMembershipId','sellerPromotionId','packagingOrderId','quickFeeSnapshotId','serviceApplicationId','parcelDeliveryId','gstAssistanceRequestId'].some(k => this[k]))) throw new Error('FBB charge payments require an exclusive online payment');
   if (this.servicePaymentKind && (!this.serviceApplicationId || this.method !== 'online' || this.isWalletTopup || this.coinsUsed || this.coinDiscount || this.advertising || ['orderId','groupRef','subscriptionId','shgSubscriptionId','premiumMembershipId','sellerPromotionId','packagingOrderId','quickFeeSnapshotId','parcelDeliveryId','gstAssistanceRequestId'].some(k => this[k]))) throw new Error('Service fees require an exclusive online service payment');
   if (this.gstAssistanceRequestId && (this.method !== 'online' || this.advertising || this.isWalletTopup || this.coinsUsed || this.coinDiscount || ['orderId','groupRef','subscriptionId','shgSubscriptionId','premiumMembershipId','sellerPromotionId','packagingOrderId','quickFeeSnapshotId','serviceApplicationId','parcelDeliveryId'].some(k=>this[k]))) throw new Error('GST assistance requires an exclusive online service payment');
   if (this.advertising && (this.method !== 'online' || this.isWalletTopup || this.coinsUsed || this.coinDiscount || ['orderId','groupRef','subscriptionId','shgSubscriptionId','premiumMembershipId','sellerPromotionId','packagingOrderId','quickFeeSnapshotId','serviceApplicationId','parcelDeliveryId'].some(k=>this[k]) || this.gatewayAttempts?.some(a=>a.orderId) || this.refundObligations?.some(r=>r.orderId || r.returnId))) throw new Error('Advertising payments require an exclusive online advertising purpose');

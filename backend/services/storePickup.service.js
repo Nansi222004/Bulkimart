@@ -27,7 +27,9 @@ export const pickupLocationError = seller => httpError(409,
   { code: 'STORE_PICKUP_LOCATION_REQUIRED', sellerId: seller?._id, editorPath: '/seller/profile' });
 
 export const requireOrderPickup = async order => {
-  const seller = await Seller.findById(orderStoreId(order)).select('businessName storeDetails');
+  const { originSeller } = await import('./fulfilmentOrigin.service.js');
+  // An FBB order is collected from the Bulkimart warehouse (same seller, warehouse address).
+  const seller = await originSeller(order, await Seller.findById(orderStoreId(order)).select('businessName storeDetails'));
   if (!seller) throw httpError(409, 'The order pickup store no longer exists; contact platform support');
   const shop = storePickup(seller);
   if (!shop) throw pickupLocationError(seller);

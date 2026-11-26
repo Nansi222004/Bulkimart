@@ -18,6 +18,7 @@ import { resolveCampaignPricesForProducts, campaignUnitPrice } from '../services
 import { isWithinRadius } from '../services/radius.service.js';
 import { inventoryIdentityKey, resolveInventoryItem, isUnlimitedDigital } from '../services/inventory.service.js';
 import { calculateCodFee, resolveCodChargeSetting } from '../services/codCharge.service.js';
+import { codAvailabilityFor, effectiveDeliveryMethod } from '../services/deliveryMethod.service.js';
 import { assertReturnOption, easyReturnsEnabled, priceWithReturnOption, resolveReturnOption, returnExtraChargeFor } from '../services/easyReturns.service.js';
 
 /**
@@ -250,8 +251,12 @@ const shape = async (channel, items, warnings, user, code, delivery = {}) => {
     pricing.totalAmount = round2(Math.max(0, pricing.subtotal - pricing.discount - pricing.couponDiscount));
   }
 
+  // Self Delivery items make the whole checkout prepaid only (read from the live products, not the cart line).
+  const methodProducts = items.length ? await Product.find({ _id: { $in: items.map((i) => i.productId) } }).select('type fulfillmentType deliveryMethod').lean() : [];
+  const cod = codAvailabilityFor(methodProducts.map(effectiveDeliveryMethod));
+
   // What Cash on Delivery would add (display only; checkout recomputes it). Not part of totalAmount.
-  pricing.codFee = !allDigital && items.length ? calculateCodFee(pricing.totalAmount, await resolveCodChargeSetting()) : null;
+  pricing.codFee = cod.available && !allDigital && items.length ? calculateCodFee(pricing.totalAmount, await resolveCodChargeSetting()) : null;
 
   let sellerInfo = null;
   const firstSellerId = items.find((i) => i.sellerId)?.sellerId;
@@ -307,6 +312,7 @@ const shape = async (channel, items, warnings, user, code, delivery = {}) => {
         : (delivery.mode === DELIVERY_MODE.SCHEDULED ? DELIVERY_MODE.SCHEDULED : null),
     } : null,
     warnings,
+    payment: { cod },
   };
 };
 
@@ -339,9 +345,13 @@ export const getCart = asyncHandler(async (req, res) => {
  * @route GET /api/cart/unified?lat=&lng=
  */
 export const getUnifiedCart = asyncHandler(async (req, res) => {
-  const destination = req.query.lat !== undefined && req.query.lng !== undefined
+  let destination = req.query.lat !== undefined && req.query.lng !== undefined
     ? { lat: Number(req.query.lat), lng: Number(req.query.lng) }
     : undefined;
+  // Optional pincode/state: lets the preview answer whether Self Delivery items reach this address.
+  if (req.query.pincode !== undefined || req.query.state !== undefined) {
+    destination = { ...(destination || {}), pincode: String(req.query.pincode || '').slice(0, 6), state: String(req.query.state || '').slice(0, 60) };
+  }
 
   if (destination && (!Number.isFinite(destination.lat) || !Number.isFinite(destination.lng) || Math.abs(destination.lat) > 90 || Math.abs(destination.lng) > 180)) throw httpError(400, 'Invalid delivery coordinates');
   if (req.query.purchaseMode === 'basket') {

@@ -11,9 +11,12 @@ import ReasonPrompt from '../../components/ReasonPrompt';
 import { ErrorView, InlineNotice, LoadingView } from '../../components/StateViews';
 import OrderFinanceSection from './OrderFinanceSection';
 import { getSellerOrder, updateOrderStatus } from '../../services/seller.api';
+import { updateExternalCourier } from '../../services/fulfillment.api';
 import { ORDER_LABEL, actionsFor, byCourier, sellerPricingRows, sellerTimeline } from '../../utils/orderAmounts';
 import { addressText, detailMoney, fullDate, statusText } from '../../utils/format';
 import { spacing, type } from '../../theme';
+
+const FBB_STAGE = { awaiting_acceptance: 'Waiting for Bulkimart to accept', accepted: 'Accepted by Bulkimart', picking: 'Being picked in the warehouse', packed: 'Packed in the warehouse', handed_over: 'Left the warehouse' };
 
 // Port of OrdersTab detail mode + orderDetailSections.jsx.
 // Buttons come only from order.permittedActions (server-authorized); with no data, there are no buttons.
@@ -84,7 +87,20 @@ export default function OrderDetailScreen({ route, navigation }) {
     ]);
   };
 
+  // Self Delivery (own courier): tracking correction or failed attempt, each with a reason.
+  const runExternal = async (body) => {
+    setBusy(true);
+    try { const result = await updateExternalCourier(order._id, body); notify(result?.message || 'Saved'); await load(true); return true; }
+    catch (e) { notify(e.message || 'Could not update the courier delivery'); if (e.status === 409) await load(true); return false; }
+    finally { if (alive.current) setBusy(false); }
+  };
+
   const submitPrompt = async (values) => {
+    if (prompt.kind === 'ext_fail' || prompt.kind === 'ext_correct') {
+      const ok = await runExternal(prompt.kind === 'ext_fail' ? { action: 'delivery_failed', reason: values.reason } : { action: 'correct_tracking', ...values });
+      if (ok && alive.current) setPrompt(null);
+      return;
+    }
     const ok = prompt.kind === 'reject'
       ? await run('cancelled', { reason: values.reason })
       : await run('dispatched', { courier: values.courier, awb: values.awb });
@@ -115,6 +131,9 @@ export default function OrderDetailScreen({ route, navigation }) {
           </InlineNotice>
         ) : null}
         {order.customerInstructions ? <Text style={type.body}>Customer instructions: {order.customerInstructions}</Text> : null}
+        {order.deliveryMethod === 'fbb' ? (
+          <InlineNotice tone="info">Fulfilled by Bulkimart: Bulkimart packs and ships this order from its warehouse. You can follow it here; there is nothing for you to do.{order.fbbStatus ? ` Stage: ${FBB_STAGE[order.fbbStatus] || order.fbbStatus}.` : ''}</InlineNotice>
+        ) : null}
       </Card>
 
       {actions.length ? (
@@ -176,6 +195,25 @@ export default function OrderDetailScreen({ route, navigation }) {
         )}
       </Card>
 
+      {order.externalShipment ? (
+        <Card title="Your courier">
+          <KeyValueRow label="Courier" value={order.externalShipment.courierName} />
+          <KeyValueRow label="Tracking ID" value={order.externalShipment.awb} />
+          <KeyValueRow label="Status" value={String(order.externalShipment.status || '').replace(/_/g, ' ')} />
+          <KeyValueRow label="Dispatched" value={fullDate(order.externalShipment.dispatchedAt)} />
+          {order.externalShipment.deliveredAt ? <KeyValueRow label="Delivered" value={fullDate(order.externalShipment.deliveredAt)} /> : null}
+          {httpsLink(order.externalShipment.trackingUrl) ? <AppButton small variant="outline" title="Track shipment" onPress={() => Linking.openURL(order.externalShipment.trackingUrl)} /> : null}
+          {order.externalShipment.status === 'delivery_failed' ? <InlineNotice tone="warning">Last attempt failed: {order.externalShipment.failure?.reason}</InlineNotice> : null}
+          <Text style={type.small}>Update the status from the order actions as the courier delivers it.</Text>
+          {['dispatched', 'out_for_delivery'].includes(order.status) ? (
+            <View style={styles.links}>
+              <AppButton small variant="outline" title="Correct tracking" disabled={busy || (order.externalShipment.corrections?.length || 0) >= 3} onPress={() => setPrompt({ kind: 'ext_correct' })} />
+              <AppButton small variant="outline" title="Report failed delivery" disabled={busy} onPress={() => setPrompt({ kind: 'ext_fail' })} />
+            </View>
+          ) : null}
+        </Card>
+      ) : null}
+
       <Card title="Courier shipment">
         {shipment ? (
           <>
@@ -221,12 +259,17 @@ export default function OrderDetailScreen({ route, navigation }) {
       <ReasonPrompt
         visible={!!prompt}
         busy={busy}
-        title={prompt?.kind === 'dispatch' ? 'Hand to courier' : 'Provide a reason'}
-        message={prompt?.kind === 'dispatch' ? 'Enter the courier name and tracking number. The customer sees these on their tracking screen.' : undefined}
+        title={prompt?.kind === 'dispatch' ? 'Hand to courier' : prompt?.kind === 'ext_correct' ? 'Correct tracking' : prompt?.kind === 'ext_fail' ? 'Failed delivery' : 'Provide a reason'}
+        message={prompt?.kind === 'dispatch' ? 'Enter the courier name and tracking number. The customer sees these on their tracking screen.'
+          : prompt?.kind === 'ext_correct' ? 'Enter the correct details. The previous ones are kept in the order history.' : undefined}
         fields={prompt?.kind === 'dispatch'
           ? [{ key: 'courier', label: 'Courier name' }, { key: 'awb', label: 'Tracking (AWB) number' }]
-          : [{ key: 'reason', label: prompt?.action?.label === 'Reject' ? 'Reason for rejection' : 'Reason for cancellation', multiline: true }]}
-        confirmLabel={prompt?.kind === 'dispatch' ? 'Mark dispatched' : prompt?.action?.label || 'Submit'}
+          : prompt?.kind === 'ext_correct'
+            ? [{ key: 'courierName', label: 'Courier company' }, { key: 'awb', label: 'Tracking ID / AWB' }, { key: 'trackingUrl', label: 'Tracking link (https://…)' }, { key: 'reason', label: 'Why are you correcting it?', multiline: true }]
+            : prompt?.kind === 'ext_fail'
+              ? [{ key: 'reason', label: 'What happened?', multiline: true }]
+              : [{ key: 'reason', label: prompt?.action?.label === 'Reject' ? 'Reason for rejection' : 'Reason for cancellation', multiline: true }]}
+        confirmLabel={prompt?.kind === 'dispatch' ? 'Mark dispatched' : prompt?.kind === 'ext_correct' ? 'Save correction' : prompt?.kind === 'ext_fail' ? 'Report failed delivery' : prompt?.action?.label || 'Submit'}
         onCancel={() => setPrompt(null)}
         onSubmit={submitPrompt}
       />

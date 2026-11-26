@@ -113,6 +113,7 @@ export async function validateBulkRows(rows, categories, imageMap = new Map(), {
       rowNumber, name, category, subCategory, images, fields: fieldColumns(row),
       brand: read(row, 'Brand'), description: read(row, 'Product Description', 'Description'),
       specText: read(row, 'Specifications'), tags: read(row, 'Search Tags', 'Tags'),
+      deliveryMethod: read(row, 'Delivery Method'),
       variant: {
         name: read(row, 'Variant Name') || (rawPack ? `${packSize} ${unit}` : ''),
         price, mrp, stock, unit,
@@ -129,7 +130,7 @@ export async function validateBulkRows(rows, categories, imageMap = new Map(), {
     if (group.length > MAX_VARIANTS) issues.push(`A product can have at most ${MAX_VARIANTS} variants`);
 
     // Product-level columns come from the first row; later rows may repeat them or leave them empty.
-    for (const [prop, label] of [['brand', 'Brand'], ['description', 'Product Description'], ['specText', 'Specifications'], ['tags', 'Search Tags']]) {
+    for (const [prop, label] of [['brand', 'Brand'], ['description', 'Product Description'], ['specText', 'Specifications'], ['tags', 'Search Tags'], ['deliveryMethod', 'Delivery Method']]) {
       const other = group.find((g) => g[prop] && first[prop] && !sameText(g[prop], first[prop]));
       if (other) issues.push(`${label} differs between row ${first.rowNumber} and row ${other.rowNumber} for the same product — fill it on the first row only`);
       else if (!first[prop]) {
@@ -197,6 +198,8 @@ export async function validateBulkRows(rows, categories, imageMap = new Map(), {
       images: first.images,
       // Photos on later rows belong to that variant (e.g. each colour); the first row's are the product's.
       variantImages: group.map((g, i) => (i === 0 ? [] : g.images)),
+      // Raw "Delivery Method" cell (Easy Ship / Self Delivery); the upload checks it with the form's rules.
+      deliveryMethodText: first.deliveryMethod || undefined,
       data: {
         name: first.name,
         category: first.category._id,

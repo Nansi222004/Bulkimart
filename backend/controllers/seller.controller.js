@@ -26,12 +26,14 @@ import { uploadToCloudinary } from '../services/cloudinary.service.js';
 import { mediaContext } from '../services/media.service.js';
 import {
   CHANNEL, CHANNELS, LOW_STOCK_THRESHOLD, ORDER_STATUS, vendorTransitions, VENDOR_CANCELLABLE_STATUSES,
-  SAME_DAY_MAX_PROCESSING_MINUTES, WHOLESALE_CHANNEL, WHOLESALE_REQUEST_STATUS,
+  SAME_DAY_MAX_PROCESSING_MINUTES, WHOLESALE_CHANNEL, WHOLESALE_REQUEST_STATUS, COURIER_DELIVERY_TYPES,
 } from '../constants/enums.js';
 import { parseLocation } from '../utils/geo.js';
 import { parseSellerSameDay } from '../services/sameDay.service.js';
 import { getRadiusSetting } from '../services/radiusSetting.service.js';
 import { httpError } from '../utils/response.js';
+import { orderDeliveryMethod, shipmentView } from '../services/deliveryMethod.service.js';
+import { parseSelfDeliveryArea, selfDeliveryAreaView } from '../services/selfDeliveryArea.service.js';
 
 // Helper to notify admins
 const notifyAdmins = async (title, message) => {
@@ -624,7 +626,7 @@ export const getSellerOrders = asyncHandler(async (req, res) => {
     const rider = trip?.partnerId?.userId || directPartner?.userId;
     const riderName = rider?.name || null;
     const riderPhone = rider?.phone || null;
-    const courierName = o.shiprocket?.courier || o.fulfillment?.courierName || o.fulfillment?.trackingPartner || (o.deliveryType === 'shiprocket' ? 'Shiprocket' : null);
+    const courierName = o.externalShipment?.courierName || o.shiprocket?.courier || o.fulfillment?.courierName || o.fulfillment?.trackingPartner || (o.deliveryType === 'shiprocket' ? 'Shiprocket' : null);
 
     const orderReturns = returnMap.get(String(o._id)) || [];
     const latestReturn = orderReturns[orderReturns.length - 1];
@@ -637,7 +639,8 @@ export const getSellerOrders = asyncHandler(async (req, res) => {
       _id: o._id,
       version: o.__v,
       permittedActions: (o.items || []).every(i => String(i.sellerId) === String(seller._id)) ? sellerOrderActions(releasedDelivery ? { ...o, deliveryId: null } : o, o.paymentMethod === 'cod' || payments.get(String(o.paymentId))?.status === 'paid') : [],
-      displayStatus: o.deliveryType !== 'shiprocket' && o.status === 'dispatched' ? (o.deliveryPartnerId ? 'Delivery assigned' : 'Awaiting rider acceptance') : o.status === 'preparing' && o.fulfillment?.readyAt ? 'Ready for pickup' : o.status,
+      displayStatus: o.deliveryType === 'external' && o.status === 'dispatched' ? 'Handed to your courier'
+        : !COURIER_DELIVERY_TYPES.includes(o.deliveryType) && o.status === 'dispatched' ? (o.deliveryPartnerId ? 'Delivery assigned' : 'Awaiting rider acceptance') : o.status === 'preparing' && o.fulfillment?.readyAt ? 'Ready for pickup' : o.status,
       pricing: (o.items || []).every(i => String(i.sellerId) === String(seller._id)) ? o.pricing : undefined,
       store: { name: seller.storeDetails?.name || seller.businessName, pickupAddress: seller.storeDetails, pickupLocation: seller.thirdPartyFulfillment?.shiprocketPickupLocation, pickupEnabled: seller.thirdPartyFulfillment?.enabled },
       cancellationReason: o.cancelReason || o.vendorDecision?.reason,
@@ -706,12 +709,19 @@ export const getSellerOrders = asyncHandler(async (req, res) => {
        * reached `dispatched`, and no rider was ever rung.
        */
       deliveryType: o.deliveryType,
+      // Easy Ship / Self Delivery / FBB as frozen at placement (older Shop All orders read as Easy Ship).
+      deliveryMethod: orderDeliveryMethod(o) || null,
+      // FBB orders are fulfilled by Bulkimart; the seller sees the warehouse stage, read only.
+      fbbStatus: o.fbb?.status || undefined,
+      shipment: shipmentView(o, trip && String(trip.orderId) === String(o._id) ? trip : null),
       fulfillment: o.fulfillment,
       deliveryMode: o.delivery?.mode,
       promisedBy: o.delivery?.promisedBy,
       // Courier and waybill for a Shop All parcel, so the shop can read back
       // what it entered rather than having to remember it.
       shiprocket: o.shiprocket?.status || o.shiprocket?.awb ? o.shiprocket : undefined,
+      // Self Delivery hand-off to the seller's own courier (tracking the seller entered).
+      externalShipment: o.externalShipment || undefined,
     };
   });
 
@@ -758,6 +768,7 @@ export const updateOrderStatus = asyncHandler(async (req, res) => {
   }
 
   if (!order.items.every(item => String(item.sellerId) === String(seller._id))) throw httpError(409, 'Multi-store order changes require platform support');
+  if (order.fulfillmentOwner === 'bulkimart') throw httpError(403, 'Bulkimart fulfils this order from its warehouse; you can follow it but not change it.', { code: 'FBB_SELLER_READ_ONLY' });
   if (status !== ORDER_STATUS.CANCELLED && !await orderPaymentReady(order)) throw httpError(409, 'Payment must be verified before seller processing');
   if (req.body.version !== undefined && req.body.version !== order.__v) throw httpError(409, 'The order changed. Refresh before acting.');
   if (status === 'ready_for_pickup') {
@@ -933,6 +944,13 @@ export const updateOrderStatus = asyncHandler(async (req, res) => {
   }
 
   order.status = status;
+  // The seller's own courier: keep the external shipment's status and audit trail in step.
+  if (order.deliveryType === 'external' && order.externalShipment && [ORDER_STATUS.OUT_FOR_DELIVERY, ORDER_STATUS.DELIVERED].includes(status)) {
+    const at = new Date();
+    order.externalShipment.status = status;
+    if (status === ORDER_STATUS.DELIVERED) order.externalShipment.deliveredAt = at;
+    order.externalShipment.events.push({ status, at, by: 'seller' });
+  }
   order.timeline.push({
     status,
     timestamp: new Date(),
@@ -1000,7 +1018,7 @@ export const updateOrderStatus = asyncHandler(async (req, res) => {
      * Both channels ring at `dispatched`: accepted, prepared, and explicitly
      * ready for pickup.
      */
-    const usesOwnRiders = order.deliveryType !== 'shiprocket';
+    const usesOwnRiders = !COURIER_DELIVERY_TYPES.includes(order.deliveryType);
     if (usesOwnRiders && status === ORDER_STATUS.DISPATCHED) {
       const { broadcastNewOrderToRiders } = await import('./deliveryPartner.controller.js');
       // Run in background asynchronously so it doesn't block response
@@ -1015,6 +1033,68 @@ export const updateOrderStatus = asyncHandler(async (req, res) => {
     message: `Order status updated to ${status}`,
     data: order
   });
+});
+
+// @desc    Where this seller delivers Self Delivery products (pincodes and/or whole states)
+// @route   GET /api/sellers/self-delivery-area
+// @access  Private (Approved Sellers only)
+export const getSelfDeliveryArea = asyncHandler(async (req, res) => {
+  const seller = req.seller || await Seller.findOne({ userId: req.user._id });
+  if (!seller) throw httpError(404, 'Seller profile not found');
+  res.status(200).json({ success: true, data: selfDeliveryAreaView(seller) });
+});
+
+// @desc    Replace the Self Delivery area. At least one pincode or state; it cannot be emptied, so
+//          Self Delivery products always keep somewhere they can be delivered.
+// @route   PUT /api/sellers/self-delivery-area
+// @access  Private (Approved Sellers only)
+export const updateSelfDeliveryArea = asyncHandler(async (req, res) => {
+  const seller = req.seller || await Seller.findOne({ userId: req.user._id });
+  if (!seller) throw httpError(404, 'Seller profile not found');
+  const area = parseSelfDeliveryArea(req.body || {});
+  const updated = await Seller.findOneAndUpdate({ _id: seller._id }, { $set: { selfDelivery: area } }, { returnDocument: 'after', runValidators: true });
+  res.status(200).json({ success: true, message: 'Self Delivery area saved', data: selfDeliveryAreaView(updated) });
+});
+
+// @desc    Seller's FBB view: warehouse stock (read only), receipts with discrepancies, charges and what is owed
+// @route   GET /api/sellers/fbb
+export const getSellerFbb = asyncHandler(async (req, res) => {
+  const seller = req.seller || await Seller.findOne({ userId: req.user._id });
+  if (!seller) throw httpError(404, 'Seller profile not found');
+  const { sellerWarehouseView } = await import('../services/warehouse.service.js');
+  const { fbbObligationSummary, listCharges, chargePreview } = await import('../services/fbbCharges.service.js');
+  const [warehouse, obligation, charges, preview] = await Promise.all([sellerWarehouseView(seller._id), fbbObligationSummary(seller._id),
+    listCharges({ sellerId: seller._id, page: Math.max(1, Number(req.query.page) || 1), limit: 50 }), chargePreview()]);
+  const { outstandingPaise: _p, ...summary } = obligation;
+  const { fbbSellableFor } = await import('../services/deliveryMethod.service.js');
+  // Open to this seller only when the switches are on AND the seller is in the FBB pilot (or FBB is open to all).
+  // A seller who has stock, receipts or charges keeps the view either way, so obligations stay visible.
+  const available = fbbSellableFor(seller);
+  const active = available || warehouse.stock.length > 0 || warehouse.receipts.length > 0 || charges.total > 0;
+  res.status(200).json({ success: true, data: { available, active, ...warehouse, obligation: summary, charges, rates: preview } });
+});
+
+// @desc    Pay outstanding FBB charges in advance (Razorpay)
+// @route   POST /api/sellers/fbb/payments  { amount }
+export const startSellerFbbPayment = asyncHandler(async (req, res) => {
+  const seller = req.seller || await Seller.findOne({ userId: req.user._id });
+  if (!seller) throw httpError(404, 'Seller profile not found');
+  const { startFbbObligationPayment } = await import('../services/fbbCharges.service.js');
+  res.status(200).json({ success: true, data: await startFbbObligationPayment({ seller, userId: req.user._id, amount: req.body?.amount }) });
+});
+
+// @desc    Verify an FBB charge payment returned by Razorpay Checkout
+// @route   POST /api/sellers/fbb/payments/verify
+export const verifySellerFbbPayment = asyncHandler(async (req, res) => {
+  const { orderId, razorpay_order_id, razorpay_payment_id, razorpay_signature } = req.body || {};
+  const payment = mongoose.isValidObjectId(orderId) && await Payment.findOne({ _id: orderId, userId: req.user._id, fbbObligationSellerId: { $exists: true } });
+  if (!payment || payment.gateway?.orderId !== razorpay_order_id) throw httpError(404, 'FBB payment not found');
+  const { verifyRazorpayPaymentSignature, getRazorpayPaymentStatus } = await import('../services/razorpay.service.js');
+  if (!verifyRazorpayPaymentSignature({ orderId: razorpay_order_id, paymentId: razorpay_payment_id, signature: razorpay_signature })) throw httpError(401, 'Payment verification failed');
+  const live = await getRazorpayPaymentStatus({ orderId: razorpay_order_id, paymentId: razorpay_payment_id });
+  if (live.orderId !== razorpay_order_id || live.paymentId !== razorpay_payment_id) throw httpError(400, 'Payment association mismatch');
+  const { settleFbbObligationPayment } = await import('../services/fbbCharges.service.js');
+  res.status(200).json({ success: true, data: await settleFbbObligationPayment({ payment, state: live.state, gatewayOrderId: live.orderId, gatewayPaymentId: live.paymentId, amountPaise: live.amountPaise, currency: live.currency }) });
 });
 
 // @desc    Buyer questions asked on this seller's own products

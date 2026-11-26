@@ -3,10 +3,11 @@
 // The web asks Google Directions (JS) for the road; the app draws the route the backend stored for the trip
 // (`track.route.polyline`). Addresses without coordinates are located through the backend's /api/geo/forward.
 import React, { useEffect, useRef, useState } from 'react';
-import { Animated, Linking, Pressable, StyleSheet, View } from 'react-native';
+import { Animated, Easing, Linking, Pressable, StyleSheet, View } from 'react-native';
 import Constants from 'expo-constants';
-import MapView, { Marker, Polyline, PROVIDER_GOOGLE } from 'react-native-maps';
+import MapView, { AnimatedRegion, Marker, MarkerAnimated, Polyline, PROVIDER_GOOGLE } from 'react-native-maps';
 import { request } from '../api/client';
+import { bearingDeg, distanceKm, formatEta, liveEtaMinutes, quickEtaMinutes, vehicleGlyph } from '../lib/deliveryEta';
 import { Text } from './ui';
 
 const MAPS_CONFIGURED = Boolean(Constants.expoConfig?.extra?.mapsConfigured);
@@ -70,6 +71,35 @@ function Pulse() {
   return <Animated.View style={{ width: 8, height: 8, borderRadius: 4, backgroundColor: '#facc15', opacity: value }} />;
 }
 
+// The rider app sends a fix about every 5 s; gliding for slightly less than that keeps the pin moving
+// continuously instead of jumping. A jump this large is a reconnect, not riding, so it is not animated.
+const GLIDE_MS = 4500, TELEPORT_KM = 2, JITTER_KM = 0.005;
+
+/**
+ * The rider's pin: their own vehicle (cycle, scooter, auto, car), gliding between GPS fixes, with an arrow
+ * around it pointing the way they are heading. The arrow is a separate flat marker so only it turns.
+ */
+function RiderMarker({ point, vehicleType, name }) {
+  const coordinate = useRef(new AnimatedRegion({ latitude: point.lat, longitude: point.lng, latitudeDelta: 0, longitudeDelta: 0 })).current;
+  const last = useRef(point);
+  const [heading, setHeading] = useState(null);
+  useEffect(() => {
+    const previous = last.current;
+    if (previous.lat === point.lat && previous.lng === point.lng) return;
+    const km = distanceKm(previous, point) ?? 0;
+    if (km > JITTER_KM) setHeading(bearingDeg(previous, point));
+    last.current = point;
+    coordinate.timing({ latitude: point.lat, longitude: point.lng, duration: km > TELEPORT_KM ? 0 : GLIDE_MS, easing: Easing.linear, useNativeDriver: false }).start();
+  }, [point.lat, point.lng]); // eslint-disable-line react-hooks/exhaustive-deps
+  const glyph = vehicleGlyph(vehicleType);
+  return <>
+    {heading !== null && <MarkerAnimated coordinate={coordinate} anchor={{ x: 0.5, y: 0.5 }} flat rotation={heading} zIndex={2} tracksViewChanges={false} tappable={false}>
+      <View style={styles.headingRing}><View style={styles.headingArrow} /></View>
+    </MarkerAnimated>}
+    <MarkerAnimated key={glyph} coordinate={coordinate} title={name || 'Delivery partner'} zIndex={3} tracksViewChanges={false}><Pin glyph={glyph} color="#2563eb" /></MarkerAnimated>
+  </>;
+}
+
 export default function DeliveryMap({ pickup, drop, rider, status, stage, etaMin, routePolyline, height = 260 }) {
   const map = useRef(null);
   const framedFor = useRef(undefined);
@@ -80,6 +110,11 @@ export default function DeliveryMap({ pickup, drop, rider, status, stage, etaMin
   const destination = rider?.leg === 'to_customer' ? home : shop;
   const route = decodePolyline(routePolyline);
   const routeError = here && !destination ? `No ${rider?.leg === 'to_customer' ? 'customer' : 'store'} coordinates on this order` : '';
+  // Recomputed from the rider's live position on every fix, so it counts down as they get closer.
+  // Falls back to the trip's stored estimate until the first fix arrives.
+  const liveEta = rider ? liveEtaMinutes({ rider: { ...rider, location: here }, shop, home, stage }) : null;
+  const arrivingIn = liveEta ?? (rider?.leg === 'to_customer' && etaMin ? etaMin : null);
+  const usualEta = quickEtaMinutes(shop, home);
 
   useEffect(() => {
     if (!ready || !map.current) return;
@@ -107,19 +142,19 @@ export default function DeliveryMap({ pickup, drop, rider, status, stage, etaMin
       showsPointsOfInterest={false} toolbarEnabled={false} zoomControlEnabled rotateEnabled={false}>
       {shop && <Marker coordinate={toLatLng(shop)} title={shop.name || 'Store'} tracksViewChanges={false}><Pin glyph="🏪" color="#1b7a37" /></Marker>}
       {home && <Marker coordinate={toLatLng(home)} title={home.name || 'Your address'} tracksViewChanges={false}><Pin glyph="🏠" color="#dc2626" /></Marker>}
-      {here && <Marker coordinate={toLatLng(here)} title={rider?.name || 'Delivery partner'} zIndex={3} tracksViewChanges={false}><Pin glyph="🛵" color="#2563eb" /></Marker>}
+      {here && <RiderMarker point={here} vehicleType={rider?.vehicleType} name={rider?.name} />}
       {route.length > 1 && <Polyline coordinates={route} strokeColor={rider?.leg === 'to_customer' ? '#1b7a37' : '#f97316'} strokeWidth={5} />}
     </MapView>
     {!ready && <View style={[StyleSheet.absoluteFill, styles.loading]}><Text style={{ fontSize: 12, fontWeight: '700', color: '#64748b' }}>Loading map…</Text></View>}
     {ready && routeError ? <View style={styles.routeError}><Text style={{ color: '#fff', fontSize: 11, fontWeight: '700' }}>⚠️ {routeError}</Text></View> : null}
     {ready && assigning && <View style={styles.card}>
       <Pulse />
-      <View><Text style={styles.cardTitle}>Assigning a delivery partner</Text><Text style={styles.cardSub}>{status === 'dispatched' ? 'Your order is packed and waiting for pickup' : 'The store is preparing your order'}</Text></View>
+      <View style={{ flex: 1 }}><Text style={styles.cardTitle}>Assigning a delivery partner</Text><Text style={styles.cardSub}>{status === 'dispatched' ? 'Your order is packed and waiting for pickup' : 'The store is preparing your order'}{usualEta ? ` · Usually arrives in ${formatEta(usualEta)}` : ''}</Text></View>
     </View>}
     {ready && rider && <View style={styles.card}>
-      <Text style={{ fontSize: 18 }}>🛵</Text>
+      <Text style={{ fontSize: 18 }}>{vehicleGlyph(rider.vehicleType)}</Text>
       <View style={{ flex: 1 }}>
-        <Text style={styles.cardTitle}>{STAGE_TEXT[stage]?.title || (rider.leg === 'to_customer' ? 'On the way to you' : 'Heading to the store')}{etaMin && rider.leg === 'to_customer' ? <Text style={{ opacity: 0.75, color: '#fff' }}> · ~{etaMin} min</Text> : null}</Text>
+        <Text style={styles.cardTitle}>{STAGE_TEXT[stage]?.title || (rider.leg === 'to_customer' ? 'On the way to you' : 'Heading to the store')}{arrivingIn ? <Text style={{ color: '#facc15' }}> · Arriving in {formatEta(arrivingIn)}</Text> : null}</Text>
         <Text style={styles.cardSub}>{rider.name || 'Your delivery partner'}{rider.vehicleNo ? ` · ${rider.vehicleNo}` : ''}{STAGE_TEXT[stage]?.sub ? ` · ${STAGE_TEXT[stage].sub}` : ''}</Text>
       </View>
       {rider.phone ? <Pressable onPress={() => Linking.openURL(`tel:${rider.phone}`).catch(() => {})} style={styles.call}><Text style={{ color: '#fff', fontSize: 11, fontWeight: '800' }}>📞 Call</Text></Pressable> : null}
@@ -138,5 +173,8 @@ const styles = StyleSheet.create({
   call: { backgroundColor: '#1b7a37', borderRadius: 8, paddingVertical: 6, paddingHorizontal: 10 },
   pin: { width: 34, height: 34, borderRadius: 17, alignItems: 'center', justifyContent: 'center' },
   pinInner: { width: 24, height: 24, borderRadius: 12, backgroundColor: '#fff', alignItems: 'center', justifyContent: 'center' },
+  // Wide enough that the arrow clears the vehicle pin (which stands above the point) in every direction.
+  headingRing: { width: 112, height: 112, alignItems: 'center' },
+  headingArrow: { width: 0, height: 0, borderLeftWidth: 8, borderRightWidth: 8, borderBottomWidth: 12, borderLeftColor: 'transparent', borderRightColor: 'transparent', borderBottomColor: '#2563eb' },
   pinTail: { width: 0, height: 0, borderLeftWidth: 7, borderRightWidth: 7, borderTopWidth: 9, borderLeftColor: 'transparent', borderRightColor: 'transparent', marginTop: -2 },
 });

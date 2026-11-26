@@ -28,7 +28,41 @@ const courierCodRemittanceSchema = new Schema({
   lines: { type: [lineSchema], default: [] },
   evidenceNote: { type: String, required: true },
   recordedBy: { type: Schema.Types.ObjectId, ref: 'Admin', required: true },
+  /**
+   * Re-application attempts (invariant C3, amended 2026-11-25). A line that could not settle when recorded —
+   * typically remitted before Shiprocket's delivered scan arrived — may be applied again by a finance admin.
+   * `lines` above is never rewritten: each attempt is appended here with what every eligible line did, so the
+   * original evidence and every later decision stay readable. `revision` is incremented by each attempt
+   * inside its transaction, so two attempts on one remittance cannot run at the same time.
+   */
+  revision: { type: Number, default: 0 },
+  reapplications: {
+    type: [new Schema({
+      at: { type: Date, required: true },
+      actorId: { type: Schema.Types.ObjectId, ref: 'Admin', required: true },
+      reason: { type: String, required: true },
+      results: { type: [new Schema({ awb: String, previousOutcome: String, outcome: String, orderId: { type: Schema.Types.ObjectId, ref: 'Order' }, detail: String }, { _id: false })], default: [] },
+    }, { _id: false })],
+    default: undefined,
+  },
 }, { timestamps: true });
+
+// After recording, an update may only bump `revision` and append to `reapplications`: the evidence itself
+// (reference, amounts, lines and their original outcomes) is never rewritten.
+const REMITTANCE_UPDATABLE = /^(revision|reapplications|updatedAt)$/;
+for (const operation of ['updateOne', 'updateMany', 'findOneAndUpdate']) {
+  courierCodRemittanceSchema.pre(operation, function () {
+    const update = this.getUpdate();
+    if (Array.isArray(update)) throw new Error('Courier remittance evidence is immutable');
+    for (const [operator, value] of Object.entries(update || {})) {
+      if (!['$inc', '$push', '$set'].includes(operator)) throw new Error('Courier remittance evidence is immutable');
+      for (const path of Object.keys(value || {})) if (!REMITTANCE_UPDATABLE.test(path)) throw new Error(`Courier remittance evidence is immutable (${path})`);
+    }
+  });
+}
+for (const operation of ['replaceOne', 'findOneAndReplace', 'deleteOne', 'deleteMany', 'findOneAndDelete']) {
+  courierCodRemittanceSchema.pre(operation, function () { throw new Error('Courier remittance evidence is immutable'); });
+}
 
 courierCodRemittanceSchema.index({ provider: 1, reference: 1 }, { unique: true });
 courierCodRemittanceSchema.index({ 'lines.orderId': 1 });

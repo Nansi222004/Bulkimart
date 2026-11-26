@@ -136,7 +136,7 @@ const unattributedCompleted = () => Order.countDocuments({ status: 'delivered', 
 // (any refund method, incl. COD and wallet). Whole-order (cancellation) refunds:
 // verified processed online refund obligations without a returnId, by verifiedAt,
 // counted once per provider refund id. Pending refunds are reported separately.
-const ORDER_PAYMENT_EXCLUSIONS = ['advertising', 'parcelDeliveryId', 'serviceApplicationId', 'quickFeeSnapshotId', 'subscriptionId', 'shgSubscriptionId', 'premiumMembershipId', 'sellerPromotionId', 'packagingOrderId'];
+const ORDER_PAYMENT_EXCLUSIONS = ['advertising', 'parcelDeliveryId', 'serviceApplicationId', 'quickFeeSnapshotId', 'subscriptionId', 'shgSubscriptionId', 'premiumMembershipId', 'sellerPromotionId', 'packagingOrderId', 'fbbObligationSellerId'];
 const orderPaymentMatch = () => ({ $or: [{ orderId: { $exists: true } }, { groupRef: { $exists: true } }], isWalletTopup: { $ne: true }, ...Object.fromEntries(ORDER_PAYMENT_EXCLUSIONS.map(key => [key, { $exists: false }])) });
 async function completedRefunds(range) {
   const rows = [];

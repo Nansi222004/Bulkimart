@@ -92,6 +92,10 @@ export const updateProduct = (id, formData, onProgress) => api.put(`/api/product
 // DELETE /api/products/:id (server soft-delete, ownership-checked)
 export const deleteProduct = (id) => api.delete(`/api/products/${requireId(id)}`);
 
+// Which delivery methods the product form may offer (Easy Ship / Self Delivery / FBB). null = not shown.
+export const getDeliveryMethodOptions = () => api.get('/api/products/seller/delivery-methods')
+  .then((body) => body?.data || null).catch(() => null);
+
 // GET /api/products/:id/stock-history → { data: [{ reason, delta, stockAfter, variantName, createdAt }] }
 export const getStockHistory = (id) => api.get(`/api/products/${requireId(id)}/stock-history`).then((body) => (Array.isArray(body?.data) ? body.data : []));
 

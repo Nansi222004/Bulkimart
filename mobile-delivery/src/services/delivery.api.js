@@ -185,3 +185,5 @@ export const placeById = (placeId) => api.get('/api/geo/place', { params: { id: 
 // ---------------------------------------------------------------- misc
 // GET /api/helpline (public) -> { sosEmergencyNumber?, ... }
 export const getHelpline = () => api.get('/api/helpline', { skipAuth: true }).then(data);
+// GET /api/training/delivery -> published how-to videos for riders (admin: Training & Coaching Videos)
+export const getTrainingVideos = () => api.get('/api/training/delivery').then(data);

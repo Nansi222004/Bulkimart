@@ -14,6 +14,7 @@ import { useFeedback } from '../lib/feedback';
 import { committedCheckouts, forgetCommittedCheckout, deferCommittedCheckout } from '../lib/committedCheckout';
 import { DELIVERY_LABEL } from '../lib/deliveryLabel';
 import { paymentSummary } from '../lib/paymentSummary';
+import { formatEta, quickEtaMinutes, toPoint } from '../lib/deliveryEta';
 import { getCurrentPosition } from '../lib/gps';
 import { useUnifiedCart } from '../hooks/useUnifiedCart';
 import usePromotionNavigation from '../hooks/usePromotionNavigation';
@@ -76,6 +77,10 @@ export default function CheckoutScreen() {
   // Starts on COD as before; the Online option shows its lower price and "Save ₹X" next to it.
   const [paymentMethod, setPaymentMethod] = useState('Cash on Delivery');
   useEffect(() => { if (isDigitalCart) setPaymentMethod('Online Payment'); }, [isDigitalCart]);
+  // The server decides whether this basket may use Cash on Delivery (Self Delivery items are prepaid only).
+  const codVerdict = unified.data?.payment?.cod || serverCart?.payment?.cod || null;
+  const codUnavailable = codVerdict?.available === false;
+  useEffect(() => { if (codUnavailable) setPaymentMethod(current => (current === 'Cash on Delivery' ? 'Online Payment' : current)); }, [codUnavailable]);
   const [isOrdering, setIsOrdering] = useState(false);
   const orderingRef = useRef(false);
   const [showBillBreakdown, setShowBillBreakdown] = useState(false);
@@ -174,6 +179,22 @@ export default function CheckoutScreen() {
     request(`/api/sellers/public/${targetSellerId}`, { auth: false }).then(({ body }) => { if (body.success && body.data) setFallbackSeller(body.data); }).catch(() => {});
   }, [isQuickCommerceCart, quickCommerceSeller, items, serverCart, quickGroup]);
 
+  // Quick delivery time for the selected address: store prep + ride from the store's saved location.
+  // Shown only when both the store and the address have map coordinates; never a made-up number.
+  const quickSellerId = quickGroup?.items?.[0]?.sellerId || (isQuickCommerceCart ? items?.[0]?.sellerId || serverCart?.items?.[0]?.sellerId : null) || null;
+  const [storePoint, setStorePoint] = useState(null);
+  useEffect(() => {
+    setStorePoint(null);
+    if (!quickSellerId) return undefined;
+    let cancelled = false;
+    request(`/api/sellers/public/${quickSellerId}`, { auth: false }).then(({ body }) => {
+      if (!cancelled) setStorePoint(toPoint(body?.data));
+    }).catch(() => {});
+    return () => { cancelled = true; };
+  }, [quickSellerId]);
+  const selectedAddress = savedAddresses.find(a => String(a._id || a.id) === String(selectedAddressId));
+  const quickEta = quickEtaMinutes(storePoint, toPoint(selectedAddress));
+
   const closeAddressForm = () => {
     setShowAddressForm(false); setEditingAddressId(null); setHouse(''); setStreet(''); setCity(''); setPincode('');
     setAddressType('Home'); setCoords(null); setLandmarkImgUrl(''); setAddressFormError(''); setLocationError(null);
@@ -229,7 +250,10 @@ export default function CheckoutScreen() {
     } finally { setCheckingCheckout(false); }
   };
 
-  const showSuccess = (firstOrder, orders) => { fetchWalletBalance(); setPlacedOrderDetails(firstOrder); setPlacedOrders(orders); setOrderSuccess(true); };
+  const showSuccess = (firstOrder, orders) => {
+    fetchWalletBalance();
+    const hasQuick = (orders?.length ? orders : [firstOrder]).some(o => o?.type === 'grocery' || o?.channel === 'grocery');
+    setPlacedOrderDetails(firstOrder && !firstOrder.estimatedDelivery && hasQuick && quickEta ? { ...firstOrder, estimatedDelivery: `Quick delivery in ${formatEta(quickEta)}` } : firstOrder); setPlacedOrders(orders); setOrderSuccess(true); };
 
   // Keep the "Fulfillment Live Timeline" live: the success screen can stay open while the seller
   // accepts and the rider delivers, so reload the order on status events, on a timer and on resume.
@@ -520,7 +544,7 @@ export default function CheckoutScreen() {
           <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 10 }}><Text style={{ fontSize: 18 }}>🚚</Text><Text style={{ fontSize: 14, fontWeight: '700' }}>Delivery Details</Text></View>
           <View style={{ gap: 8 }}>{groups.map(group => <View key={group.key} style={[styles.deliveryRow, { borderColor: theme.border, backgroundColor: theme.pageBackground }]}>
             <Text style={{ fontWeight: '600', fontSize: 12.5, flexShrink: 1 }}>{group.seller?.name || 'Store'}</Text>
-            <Text style={[styles.deliveryPill, { color: primary, backgroundColor: theme.primaryLight }]}>{group.channel === 'grocery' ? '⚡ Quick Commerce delivery' : group.requestedMode === 'same_day' ? '🚀 Same-Day via Bulkimart delivery' : '📦 Regular delivery'}</Text>
+            <Text style={[styles.deliveryPill, { color: primary, backgroundColor: theme.primaryLight }]}>{group.channel === 'grocery' ? `⚡ Quick Commerce delivery${quickEta ? ` · ${formatEta(quickEta)}` : ''}` : group.requestedMode === 'same_day' ? '🚀 Same-Day via Bulkimart delivery' : '📦 Regular delivery'}</Text>
           </View>)}</View>
           <Text style={{ fontSize: 12, color: theme.textSecondary, marginTop: 10, lineHeight: 18 }}>Delivery arranged after store acceptance. All delivery charges are included in your bill and will not add a customer charge.</Text>
         </Card>}
@@ -537,7 +561,8 @@ export default function CheckoutScreen() {
             {paymentOption('Online Payment', '💳', 'Razorpay Online Payment', !isDigitalCart && summary.codFeeQuote > 0 ? `Pay ${money(summary.onlineTotal)} · UPI, cards and more via Razorpay` : 'UPI, cards and supported payment methods via Razorpay', {
               right: !isDigitalCart && summary.codFeeQuote > 0 ? <Text style={{ fontSize: 11, fontWeight: '800', color: '#15803d', backgroundColor: '#dcfce7', paddingHorizontal: 8, paddingVertical: 3, borderRadius: 12, overflow: 'hidden' }}>Save {money(summary.codFeeQuote)}</Text> : null,
             })}
-            {paymentOption('Cash on Delivery', '💵', 'Cash on Delivery (COD)', summary.codFeeQuote > 0 ? `Pay ${money(summary.codTotal)} at your doorstep (+ ${money(summary.codFeeQuote)} ${summary.codFeeLabel})` : 'Pay at your doorstep on delivery', { hidden: isDigitalCart })}
+            {paymentOption('Cash on Delivery', '💵', 'Cash on Delivery (COD)', summary.codFeeQuote > 0 ? `Pay ${money(summary.codTotal)} at your doorstep (+ ${money(summary.codFeeQuote)} ${summary.codFeeLabel})` : 'Pay at your doorstep on delivery', { hidden: isDigitalCart || codUnavailable })}
+            {!isDigitalCart && codUnavailable ? <Text accessibilityRole="text" style={{ fontSize: 12, color: '#9a3412', backgroundColor: '#fff7ed', borderRadius: 10, padding: 10 }}>💵 {codVerdict.reason || 'Cash on Delivery is not available for this basket.'}</Text> : null}
           </View>
         </Card>
 

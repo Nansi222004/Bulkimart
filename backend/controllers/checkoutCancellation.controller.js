@@ -48,7 +48,8 @@ export const abandonCheckoutPayment = asyncHandler(async (req, res) => {
         const cart = await Cart.findOne({ userId: req.user._id, channel }).session(session)
           || new Cart({ userId: req.user._id, channel, items: [] });
         for (const item of row.items) {
-          if (item.fulfillmentType !== 'digital' || item.stockReserved) await mutateInventory({ productId: item.productId, variantId: item.variantId, quantity: item.qty, session, restore: true });
+          if (item.fulfillmentType !== 'digital' || item.stockReserved) await mutateInventory({ productId: item.productId, variantId: item.variantId, quantity: item.qty, session, restore: true,
+            deliveryMethod: item.deliveryMethod, warehouseId: row.origin?.warehouseId, reference: { referenceType: 'order', referenceId: row._id } });
           const deliveryMode = item.fulfillmentType !== 'digital' ? row.delivery?.mode : undefined;
           const existing = cart.items.find(line => String(line.productId) === String(item.productId) && String(line.variantId || '') === String(item.variantId || '') && (line.deliveryMode || '') === (deliveryMode || ''));
           if (existing) existing.qty = item.fulfillmentType === 'digital' ? 1 : existing.qty + item.qty;

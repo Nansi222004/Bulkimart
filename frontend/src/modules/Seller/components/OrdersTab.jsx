@@ -13,6 +13,8 @@ import { EmptyState } from './EmptyState';
 import { Bike, Package } from 'lucide-react';
 import './SellerOrderDetails.css';
 import { sellerOrderTotal } from '../utils/sellerOrderAmounts';
+import ExternalCourierPanel from './ExternalCourierPanel';
+import ExternalShipmentActions from './ExternalShipmentActions';
 
 /**
  * Orders — live from GET /api/sellers/orders, and now actionable.
@@ -49,6 +51,7 @@ const byCourier = (order) =>
 
 // Actions are supplied by the authorized order API; absent data fails closed.
 export const actionsFor = order => Array.isArray(order.permittedActions) ? order.permittedActions : [];
+const FBB_STAGE = { awaiting_acceptance: 'Waiting for Bulkimart to accept', accepted: 'Accepted by Bulkimart', picking: 'Being picked in the warehouse', packed: 'Packed in the warehouse', handed_over: 'Left the warehouse', cancelled: 'Cancelled' };
 const STATUS_TABS = [
   { label: 'All', value: 'all' },
   { label: 'Pending', value: 'pending' },
@@ -92,7 +95,7 @@ const fmt = (d) =>
 
 export const OrdersTab = ({ detailPage = false }) => {
   const ui = useFeedback();
-  const { orders, ordersLoading, ordersError, fetchSellerOrders, updateOrderStatus, getFulfillmentOptions, selectManualFulfillment, createShiprocketShipment, triggerToast, selectedTypes, activeMode, setActiveMode, selectedOrder: selected, openSellerOrder, closeSellerOrder, orderDetailId, orderDetailLoading, orderDetailError, orderListState, setOrderListState } = useSeller();
+  const { orders, ordersLoading, ordersError, fetchSellerOrders, updateOrderStatus, getFulfillmentOptions, selectManualFulfillment, createShiprocketShipment, dispatchExternalCourier, updateExternalCourier, triggerToast, selectedTypes, activeMode, setActiveMode, selectedOrder: selected, openSellerOrder, closeSellerOrder, orderDetailId, orderDetailLoading, orderDetailError, orderListState, setOrderListState } = useSeller();
   const [tab, setTab] = useState(orderListState?.tab || 'all');
   const [orderScope, setOrderScope] = useState(orderListState?.scope || 'active');
   const chooseMode = mode => { setOrderScope('active'); setActiveMode(mode); };
@@ -634,6 +637,7 @@ export const OrdersTab = ({ detailPage = false }) => {
             <span>{selected.paymentMethod} · {selected.paymentStatus || 'Payment status unavailable'}</span></div>
           <div className="seller-order-primary-actions">{actionsFor(selected).filter(action => !action.setup || action.label === 'Reassign delivery partner').map(action => <button type="button" key={action.label} disabled={busyId === selected._id || orderDetailLoading}
             className="order-action-btn-sm" onClick={() => onAction(selected, action)}>{action.label}</button>)}</div>
+          {selected.deliveryMethod === 'fbb' && <p role="status" className="seller-fbb-note">Fulfilled by Bulkimart: Bulkimart packs and ships this order from its warehouse. You can follow it here; there is nothing for you to do.{selected.fbbStatus ? ` Stage: ${FBB_STAGE[selected.fbbStatus] || selected.fbbStatus}.` : ''}</p>}
         </header>}
       </>}
       {/* Courier hand-off. Asked for once, at the only moment it is knowable. */}
@@ -688,8 +692,19 @@ export const OrdersTab = ({ detailPage = false }) => {
             <div className="seller-delivery-heading"><div><span className="seller-order-eyebrow">Arrange fulfillment</span><h2>Choose delivery method</h2></div></div>
             <div className="seller-delivery-choices" role="group" aria-label="Delivery methods">
               <button type="button" aria-pressed={deliveryChoice === 'manual'} aria-controls="seller-manual-delivery" disabled={Boolean(busyId)} onClick={() => setDeliveryChoice('manual')}><span className="seller-delivery-choice-icon" aria-hidden="true"><Bike size={24} /></span><span><strong>Manual Delivery</strong><small>View active delivery boys</small></span><span className="seller-delivery-choice-indicator" aria-hidden="true">{deliveryChoice === 'manual' ? '✓' : '→'}</span></button>
-              <button type="button" aria-pressed={deliveryChoice === 'shiprocket'} aria-controls="seller-shiprocket-delivery" disabled={Boolean(busyId)} onClick={() => setDeliveryChoice('shiprocket')}><span className="seller-delivery-choice-icon" aria-hidden="true"><Package size={24} /></span><span><strong>Use Shiprocket</strong><small>Courier delivery & tracking</small></span><span className="seller-delivery-choice-indicator" aria-hidden="true">{deliveryChoice === 'shiprocket' ? '✓' : '→'}</span></button>
+              {fulfillmentOptions.deliveryMethod === 'self_delivery'
+                ? <button type="button" aria-pressed={deliveryChoice === 'external'} aria-controls="seller-external-delivery" disabled={Boolean(busyId)} onClick={() => setDeliveryChoice('external')}><span className="seller-delivery-choice-icon" aria-hidden="true"><Package size={24} /></span><span><strong>Your own courier</strong><small>You book it; enter tracking</small></span><span className="seller-delivery-choice-indicator" aria-hidden="true">{deliveryChoice === 'external' ? '✓' : '→'}</span></button>
+                : <button type="button" aria-pressed={deliveryChoice === 'shiprocket'} aria-controls="seller-shiprocket-delivery" disabled={Boolean(busyId)} onClick={() => setDeliveryChoice('shiprocket')}><span className="seller-delivery-choice-icon" aria-hidden="true"><Package size={24} /></span><span><strong>Use Shiprocket</strong><small>Courier delivery & tracking</small></span><span className="seller-delivery-choice-indicator" aria-hidden="true">{deliveryChoice === 'shiprocket' ? '✓' : '→'}</span></button>}
             </div>
+            {deliveryChoice === 'external' && fulfillmentOptions.deliveryMethod === 'self_delivery' && (
+              <ExternalCourierPanel option={fulfillmentOptions.external} busy={busyId === fulfilling._id} onSubmit={async (details) => {
+                setBusyId(fulfilling._id);
+                const result = await dispatchExternalCourier(fulfilling._id, details);
+                setBusyId(null); if (result.ok) triggerToast?.(result.message);
+                if (result.ok) { setFulfilling(null); await openSellerOrder(fulfilling._id); }
+                return result;
+              }} />
+            )}
             {deliveryChoice === 'manual' && <div id="seller-manual-delivery" className="seller-delivery-panel" aria-label="Manual delivery">
               <div className="seller-rider-heading"><div><h3>Active delivery boys</h3><p>{fulfillmentOptions.manual?.eligibleRiderCount || 0} on-duty eligible riders for this order</p></div><button type="button" className="order-action-btn-sm" onClick={() => loadAvailability(fulfilling, true)} disabled={Boolean(busyId)}>Refresh availability</button></div>
               <div className="seller-rider-list" role="group" aria-label="Available delivery partners">{fulfillmentOptions.manual?.riders?.filter(rider => rider.online === true).map((rider, index) => <button type="button" className="seller-rider-card" key={rider.id || index} aria-pressed={Boolean(rider.id && String(selectedRiderId) === String(rider.id))} disabled={Boolean(busyId) || !rider.id} onClick={() => setSelectedRiderId(rider.id)}><span className="seller-rider-avatar" aria-hidden="true">{rider.name?.charAt(0)?.toUpperCase() || 'R'}</span><div><strong>{rider.name}</strong>{rider.contact && <span>{rider.contact}</span>}<small>{rider.availability}</small></div><span className="seller-rider-active">{rider.id && String(selectedRiderId) === String(rider.id) ? '✓ Selected' : 'Active'}</span></button>)}</div>
@@ -709,7 +724,7 @@ export const OrdersTab = ({ detailPage = false }) => {
               <a className="seller-delivery-profile-link" href="/seller/profile">Check or update the store pickup location</a>
             </div>}
 
-            {deliveryChoice === 'shiprocket' && <div id="seller-shiprocket-delivery" className="seller-delivery-panel" aria-label="Shiprocket delivery">
+            {deliveryChoice === 'shiprocket' && fulfillmentOptions.deliveryMethod !== 'self_delivery' && <div id="seller-shiprocket-delivery" className="seller-delivery-panel" aria-label="Shiprocket delivery">
               <h3>Shiprocket shipment</h3>
               {fulfilling.channel === 'grocery' && <ShiprocketFeePayment key={fulfilling._id} orderId={fulfilling._id} provider={fulfillmentOptions.shiprocket || {}} onRefresh={() => loadAvailability(fulfilling, true)} />}
               <div className="seller-delivery-route"><div><span>Pickup from</span><p>{addressText(fulfillmentOptions.shiprocket?.verifiedPickup || fulfillmentOptions.pickup)}</p></div><span aria-hidden="true">→</span><div><span>Deliver to</span><p>{addressText(fulfillmentOptions.destination)}</p></div></div>
@@ -754,6 +769,14 @@ export const OrdersTab = ({ detailPage = false }) => {
 
       {detailPage && selected && (
         <section aria-label="Order details">
+          {selected.externalShipment && ['dispatched', 'out_for_delivery'].includes(selected.status) && (
+            <ExternalShipmentActions order={selected} busy={busyId === selected._id} onSubmit={async (body) => {
+              setBusyId(selected._id);
+              const result = await updateExternalCourier(selected._id, body);
+              setBusyId(null); if (result.ok) triggerToast?.(result.message);
+              return result;
+            }} />
+          )}
           <OrderFinancialBreakdown orderId={selected._id} paymentMethod={selected.paymentMethod} />
           {(selected.deliveredAt || selected.status === 'delivered') && <OrderInvoices label="View / print invoice" buttonClassName="order-action-btn-sm" load={async () => {
             const res = await fetch(apiUrl(`/api/sellers/orders/${selected._id}/invoice`), { headers: { Authorization: `Bearer ${getPortalToken('seller')}` } });
