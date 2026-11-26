@@ -323,7 +323,7 @@ test('every FBB switch off after orders exist: packaging, fulfilment, RTO inspec
   for (const orderId of [packedId, courierId]) for (const step of ['accept', 'pick']) await asAdmin(request(app).post(`/api/admin/fbb/orders/${orderId}/${step}`)).expect(200);
   const snapshotBefore = (await Order.findById(packedId).lean()).financialSnapshot;
 
-  FLAGS.forEach((k) => delete process.env[k]); // delivery methods, FBB, warehouse operations and FBB charges all off
+  FLAGS.forEach((k) => { process.env[k] = 'false'; }); // delivery methods, FBB, warehouse operations and FBB charges all off
   await fill([product]);
   await checkout('/orders/unified').expect(409);
 

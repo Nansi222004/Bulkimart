@@ -50,7 +50,7 @@ const makeProduct = async (extra = {}) => {
   return product;
 };
 const line = (product) => ({ productId: product._id, variantId: product.variants[0]._id, sellerId: seller._id, name: product.name, price: 100, qty: 1 });
-const setFlag = (on) => { if (on) process.env.DELIVERY_METHODS_ENABLED = 'true'; else delete process.env.DELIVERY_METHODS_ENABLED; };
+const setFlag = (on) => { if (on) process.env.DELIVERY_METHODS_ENABLED = 'true'; else process.env.DELIVERY_METHODS_ENABLED = 'false'; };
 
 beforeAll(async () => {
   db = await MongoMemoryReplSet.create({ replSet: { count: 1 } }); await mongoose.connect(db.getUri());
@@ -128,7 +128,7 @@ test('product edit: switching rules, audit trail, and the off switch', async () 
   setFlag(true);
   await edit('self_delivery').expect(200);
   expect((await Product.findById(product._id).lean()).deliveryMethod).toBe('self_delivery');
-  expect((await edit('fbb').expect(409)).body.message).toBe('Fulfilled by Bulkimart is not available yet');
+  expect((await edit('fbb').expect(409)).body.message).toBe('Use "Convert to Fulfilled by Bulkimart", which shows the charges first'); // FBB is always on: conversion is the only way in
   await edit('easy_ship').expect(200);
   expect((await Product.findById(product._id).lean()).deliveryMethod).toBeUndefined();
   const history = await DeliveryMethodChange.find({ productId: product._id }).sort({ createdAt: 1 }).lean();

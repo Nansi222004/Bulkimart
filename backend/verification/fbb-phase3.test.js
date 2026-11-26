@@ -32,7 +32,7 @@ import { resolveDeliveryMethodInput } from '../services/deliveryMethod.service.j
 const id = () => new mongoose.Types.ObjectId();
 let db, user, admin, admin2, seller, warehouse, product, variantId;
 const FLAGS = { DELIVERY_METHODS_ENABLED: 'true', FBB_ENABLED: 'true', WAREHOUSE_OPERATIONS_ENABLED: 'true', FBB_CHARGES_ENABLED: 'true' };
-const setFlags = (over = {}) => { for (const [k, v] of Object.entries({ ...FLAGS, ...over })) { if (v === undefined) delete process.env[k]; else process.env[k] = v; } };
+const setFlags = (over = {}) => { for (const [k, v] of Object.entries({ ...FLAGS, ...over })) { process.env[k] = v === undefined ? 'false' : v; } }; // undefined = switched off (unset now means ON)
 
 const stockRow = () => WarehouseStock.findOne({ productId: product._id, variantId }).lean();
 const mirror = async () => (await Product.findById(product._id).lean()).variants[0].stock;

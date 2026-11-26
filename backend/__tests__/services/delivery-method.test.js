@@ -37,7 +37,7 @@ describe('delivery method rules', () => {
     expect(canSwitchDeliveryMethod('fbb', 'self_delivery')).toBe(false);
   });
 
-  test('switched off: only Easy Ship, and a rollback to it, are accepted; resending the current value is a no-op', () => withFlag(undefined, () => {
+  test('switched off: only Easy Ship, and a rollback to it, are accepted; resending the current value is a no-op', () => withFlag('false', () => {
     expect(resolveDeliveryMethodInput(undefined, ecom, { isNew: true })).toBeUndefined();
     expect(resolveDeliveryMethodInput('easy_ship', ecom, { isNew: true })).toBeUndefined();
     expect(failure(() => resolveDeliveryMethodInput('self_delivery', ecom, { isNew: true }))).toEqual({ status: 400, message: 'Only Easy Ship is available right now' });
@@ -59,7 +59,10 @@ describe('delivery method rules', () => {
     expect(resolveDeliveryMethodInput('easy_ship', { type: 'grocery' }, { isNew: true })).toBeUndefined();
     const options = deliveryMethodOptions();
     expect(options.enabled).toBe(true);
-    expect(options.options.map(o => [o.value, o.available])).toEqual([['easy_ship', true], ['self_delivery', true], ['fbb', false]]);
+    // FBB is always on (no .env needed); only an explicit FBB_ENABLED=false (emergency stop) hides it.
+    expect(options.options.map(o => [o.value, o.available])).toEqual([['easy_ship', true], ['self_delivery', true], ['fbb', true]]);
+    process.env.FBB_ENABLED = 'false';
+    try { expect(deliveryMethodOptions().options.find(o => o.value === 'fbb').available).toBe(false); } finally { delete process.env.FBB_ENABLED; }
   }));
 
   test('sheet text parsing', () => {

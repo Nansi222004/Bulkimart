@@ -8,7 +8,7 @@ import { httpError } from '../utils/response.js';
  * have one. An absent value means Easy Ship, so every product and order that existed before
  * this feature keeps exactly its current behaviour without a data migration.
  *
- * The whole feature is switched off unless DELIVERY_METHODS_ENABLED=true. While it is off a
+ * The whole feature is always on; only DELIVERY_METHODS_ENABLED=false (emergency stop) turns it off. While off a
  * seller cannot choose anything other than Easy Ship, and nothing is written to products.
  */
 
@@ -18,7 +18,10 @@ export const LABELS = {
   [DELIVERY_METHOD.FBB]: 'Fulfilled by Bulkimart',
 };
 
-export const deliveryMethodsEnabled = () => String(process.env.DELIVERY_METHODS_ENABLED || '').trim().toLowerCase() === 'true';
+// Delivery methods and FBB are a permanent feature: ON with nothing in .env. Only an explicit "false"
+// (emergency stop) turns one off.
+const onByDefault = (name) => String(process.env[name] ?? '').trim().toLowerCase() !== 'false';
+export const deliveryMethodsEnabled = () => onByDefault('DELIVERY_METHODS_ENABLED');
 
 /**
  * Credit the customer's delivery charge to the seller when the seller arranged and paid the courier
@@ -29,7 +32,7 @@ export const selfDeliveryFeeCreditEnabled = () => String(process.env.SELF_DELIVE
 
 const flag = (name) => String(process.env[name] || '').trim().toLowerCase() === 'true';
 /**
- * FBB switches, all off by default and independent:
+ * FBB switches, all ON by default (only an explicit "false" stops one) and independent:
  *   FBB_ENABLED                    sellers may choose/convert to FBB and customers may buy FBB stock
  *   WAREHOUSE_OPERATIONS_ENABLED   admins may receive stock and approve adjustments (fulfilment, returns and
  *                                  cancellations of orders that already exist never depend on a switch)
@@ -37,9 +40,9 @@ const flag = (name) => String(process.env[name] || '').trim().toLowerCase() === 
  * FBB is offered only when delivery methods are on too. Conversion additionally checks real readiness
  * (an active warehouse, a charge version when charging is on): services/warehouse.service.js::fbbReadiness.
  */
-export const fbbEnabled = () => flag('FBB_ENABLED');
-export const warehouseOperationsEnabled = () => flag('WAREHOUSE_OPERATIONS_ENABLED');
-export const fbbChargesEnabled = () => flag('FBB_CHARGES_ENABLED');
+export const fbbEnabled = () => onByDefault('FBB_ENABLED');
+export const warehouseOperationsEnabled = () => onByDefault('WAREHOUSE_OPERATIONS_ENABLED');
+export const fbbChargesEnabled = () => onByDefault('FBB_CHARGES_ENABLED');
 export const fbbAvailable = () => deliveryMethodsEnabled() && fbbEnabled();
 /**
  * Customers can buy FBB stock only when FBB is open AND charging is on: FBB is a paid service, and an order

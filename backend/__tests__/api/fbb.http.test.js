@@ -148,7 +148,7 @@ test('switched off: FBB items cannot be bought, but existing orders can still be
   await fill([product]);
   const placed = await checkout('/orders/unified').expect(201);
   await Payment.updateOne({ _id: (await Order.findById(placed.body.data.orders[0]._id)).paymentId }, { $set: { status: 'paid' } });
-  delete process.env.FBB_ENABLED;
+  process.env.FBB_ENABLED = 'false';
   await fill([product]);
   await checkout('/orders/unified').expect(409);
   await asAdmin(request(app).post(`/api/admin/fbb/orders/${placed.body.data.orders[0]._id}/accept`)).expect(200);
@@ -316,14 +316,14 @@ test('FBB is paid: with charges off, new FBB sales and receipt posting pause, bu
   await fill([product]);
   const orderId = (await checkout('/orders/unified').expect(201)).body.data.orders[0]._id;
   await Payment.updateOne({ _id: (await Order.findById(orderId)).paymentId }, { $set: { status: 'paid' } });
-  delete process.env.FBB_CHARGES_ENABLED;
+  process.env.FBB_CHARGES_ENABLED = 'false';
   await fill([product]);
   await checkout('/orders/unified').expect(409);
   await checkout('/orders').expect(409);
   // The master switch also stops FBB sales on its own.
-  process.env.FBB_CHARGES_ENABLED = 'true'; delete process.env.DELIVERY_METHODS_ENABLED;
+  process.env.FBB_CHARGES_ENABLED = 'true'; process.env.DELIVERY_METHODS_ENABLED = 'false';
   await checkout('/orders/unified').expect(409);
-  flagsOn(); delete process.env.FBB_CHARGES_ENABLED;
+  flagsOn(); process.env.FBB_CHARGES_ENABLED = 'false';
   // Receiving: the draft is kept, posting is refused.
   const { receipt } = await warehouseSvc.createReceipt({ warehouseId: warehouse._id, sellerId: sellerDoc._id, idempotencyKey: `K-${id()}`, adminId: admin._id, lines: [{ productId: product._id, variantId: product.variants[0]._id, acceptedQty: 2 }] });
   await expect(warehouseSvc.postReceipt({ receiptId: receipt._id, adminId: admin._id })).rejects.toThrow('Posting receipts is paused');
