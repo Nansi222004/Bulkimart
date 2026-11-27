@@ -1,6 +1,7 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { useAdmin } from '../context/AdminContext';
 import { adminGet, adminPost, adminPut, qs } from '../../../utils/adminApi';
+import './FbbTab.css';
 
 /**
  * Fulfilled by Bulkimart — admin workspace (/api/admin/fbb).
@@ -15,16 +16,27 @@ const SECTIONS = [
 const money = (n) => `₹${Number(n || 0).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 const when = (d) => (d ? new Date(d).toLocaleString('en-IN') : '—');
 const key = () => (typeof crypto !== 'undefined' && crypto.randomUUID ? crypto.randomUUID() : `rcpt-${Date.now()}-${Math.random().toString(36).slice(2)}`);
-const box = { border: '1px solid var(--border-color, #e2e8f0)', borderRadius: 10, padding: 14, marginBottom: 14, background: 'var(--card-bg, #fff)' };
+// Card / button looks come from FbbTab.css (Super Admin theme); these keep spacing for the inline layouts below.
+const box = {};
 const table = { width: '100%', borderCollapse: 'collapse', fontSize: 13 };
-const cell = { borderBottom: '1px solid #eef2f7', padding: '6px 8px', textAlign: 'left', verticalAlign: 'top' };
-const btn = { padding: '5px 10px', borderRadius: 6, border: '1px solid #cbd5e1', background: '#fff', cursor: 'pointer', fontSize: 12, marginRight: 6 };
-const primary = { ...btn, background: '#0f766e', color: '#fff', borderColor: '#0f766e' };
+const cell = { borderBottom: '1px solid #eef2f7', padding: '10px 12px', textAlign: 'left', verticalAlign: 'top' };
+const btn = { minHeight: 36, padding: '7px 14px', borderRadius: 8, border: '1px solid #cbd5e1', background: '#fff', color: '#172b4d', cursor: 'pointer', fontSize: 13, fontWeight: 600, marginRight: 6, marginBottom: 4 };
+const primary = { ...btn, background: 'var(--sa-primary, #08b9e8)', color: '#fff', borderColor: 'var(--sa-primary, #08b9e8)' };
+
+/** Coloured pill for a status value. */
+const GOOD = ['posted', 'approved', 'active', 'delivered', 'handed_over', 'completed', 'refunded', 'settled', 'yes'];
+const BAD = ['cancelled', 'rejected', 'failed', 'reversed', 'no'];
+const WARN = ['draft', 'pending', 'awaiting_acceptance', 'return_requested', 'under_review', 'awaiting_return', 'placed'];
+function Badge({ value, label }) {
+  const v = String(value ?? '').toLowerCase();
+  const tone = GOOD.includes(v) ? 'is-good' : BAD.includes(v) ? 'is-bad' : WARN.includes(v) ? 'is-warn' : 'is-info';
+  return <span className={`fbb-badge ${tone}`}>{label ?? String(value ?? '—').replace(/_/g, ' ')}</span>;
+}
 
 function Table({ columns, rows, empty = 'Nothing here.' }) {
-  if (!rows?.length) return <p style={{ fontSize: 13, color: '#64748b' }}>{empty}</p>;
+  if (!rows?.length) return <p className="fbb-empty">{empty}</p>;
   return (
-    <div style={{ overflowX: 'auto' }}>
+    <div className="fbb-table-wrap">
       <table style={table}>
         <thead><tr>{columns.map(([label]) => <th key={label} style={{ ...cell, fontWeight: 600 }}>{label}</th>)}</tr></thead>
         <tbody>{rows.map((row, i) => <tr key={row._id || row.id || i}>{columns.map(([label, render]) => <td key={label} style={cell}>{render(row)}</td>)}</tr>)}</tbody>
@@ -57,39 +69,40 @@ function useAct() {
   return { busy, act };
 }
 
-const Refused = ({ error }) => error ? <p role="alert" style={{ color: '#b42318', fontSize: 13 }}>{error}</p> : null;
+const Refused = ({ error }) => error ? <p role="alert" className="fbb-error">{error}</p> : null;
 
 /* ------------------------------------------------------------------ overview ------------------------------------- */
 function Overview() {
   const { data, error } = useLoad('/fbb/overview');
   if (error) return <Refused error={error} />;
   if (!data) return <p>Loading…</p>;
-  const sw = data.switches;
+  // Server switches are internal and not shown here; the admin sees only what is left to set up.
+  const { ready, blockers = [] } = data.readiness || {};
   return (
     <>
-      <section style={box}>
-        <h3>Switches</h3>
-        <p style={{ fontSize: 13 }}>Set by the server's environment; they cannot be changed here.</p>
-        <ul style={{ fontSize: 13 }}>
-          <li>Delivery methods: <strong>{sw.deliveryMethods ? 'On' : 'Off'}</strong></li>
-          <li>FBB for sellers and customers: <strong>{sw.fbb ? 'On' : 'Off'}</strong></li>
-          <li>Warehouse operations (receiving, adjustments): <strong>{sw.warehouseOperations ? 'On' : 'Off'}</strong></li>
-          <li>New FBB charges: <strong>{sw.fbbCharges ? 'On' : 'Off'}</strong></li>
-          <li>Open to every seller: <strong>{sw.allSellers ? 'Yes' : 'No — pilot sellers only'}</strong></li>
-          <li>Refuse checkout when courier coverage cannot be confirmed: <strong>{sw.strictServiceability ? 'Yes' : 'No — only when the courier says it cannot deliver'}</strong></li>
-        </ul>
-        <p style={{ fontSize: 13 }}>Ready for sellers: <strong>{data.readiness.ready ? 'Yes' : 'No'}</strong>{!data.readiness.ready && ` — ${data.readiness.blockers.join('; ')}`}</p>
+      <section>
+        <div className={`fbb-setup${ready ? ' is-ready' : ''}`}>
+          <span className="fbb-setup-icon" aria-hidden="true">{ready ? '✅' : '🛠️'}</span>
+          <div style={{ flex: 1 }}>
+            <h3>{ready ? 'FBB is ready' : 'Finish setting up FBB'}</h3>
+            {ready
+              ? <p style={{ marginBottom: 0 }}>Sellers added under Pilot sellers can choose Fulfilled by Bulkimart, send stock and sell from the warehouse.</p>
+              : <ul className="fbb-setup-list">{blockers.map((b) => <li key={b}>{b}</li>)}</ul>}
+          </div>
+        </div>
       </section>
-      <section style={box}>
+      <section>
         <h3>Today</h3>
-        <ul style={{ fontSize: 13 }}>
-          <li>Active warehouses: {data.counts.warehouses}</li>
-          <li>Pilot sellers: {data.counts.pilotSellers ?? 0}</li>
-          <li>FBB products: {data.counts.fbbProducts}</li>
-          <li>Orders to fulfil: {data.counts.openOrders}</li>
-          <li>Receipts waiting to be posted: {data.counts.draftReceipts}</li>
-          <li>Adjustments waiting for approval: {data.counts.pendingAdjustments}</li>
-        </ul>
+        <div className="fbb-stats">
+          {[['Active warehouses', data.counts.warehouses], ['Pilot sellers', data.counts.pilotSellers ?? 0], ['FBB products', data.counts.fbbProducts],
+            ['Orders to fulfil', data.counts.openOrders, true], ['Receipts to post', data.counts.draftReceipts, true], ['Adjustments to approve', data.counts.pendingAdjustments, true]]
+            .map(([label, value, attention]) => (
+              <div key={label} className={`fbb-stat${attention && value > 0 ? ' is-attention' : ''}`}>
+                <div className="fbb-stat-label">{label}</div>
+                <div className="fbb-stat-value">{value ?? 0}</div>
+              </div>
+            ))}
+        </div>
       </section>
     </>
   );
@@ -116,7 +129,7 @@ function Warehouses() {
       <Refused error={error} />
       <Table rows={data || []} columns={[
         ['Code', (w) => w.code], ['Name', (w) => w.name], ['Address', (w) => [w.address?.line1, w.address?.city, w.address?.pincode].filter(Boolean).join(', ')],
-        ['Shiprocket pickup', (w) => w.shiprocketPickupLocation || '—'], ['Active', (w) => (w.isActive ? 'Yes' : 'No')],
+        ['Shiprocket pickup', (w) => w.shiprocketPickupLocation || '—'], ['Active', (w) => <Badge value={w.isActive ? 'active' : 'cancelled'} label={w.isActive ? 'Active' : 'Inactive'} />],
         ['', (w) => <button type="button" style={btn} onClick={() => setForm({ ...EMPTY_WAREHOUSE, ...w, address: { ...EMPTY_WAREHOUSE.address, ...w.address } })}>Edit</button>],
       ]} empty="No warehouse yet. FBB stays closed until one is active." />
       {!form && <button type="button" style={primary} onClick={() => setForm(EMPTY_WAREHOUSE)}>Add warehouse</button>}
@@ -144,13 +157,13 @@ function PilotSellers() {
   const change = (seller, enabled) => act(() => adminPut(`/fbb/pilot-sellers/${seller._id}`, { enabled, note }), async () => { setFound(null); await reload(); });
   const toggle = (s) => <button type="button" style={s.fbbPilot?.enabled ? btn : primary} disabled={busy || note.trim().length < 5}
     onClick={() => change(s, !s.fbbPilot?.enabled)}>{s.fbbPilot?.enabled ? 'Remove from pilot' : 'Add to pilot'}</button>;
-  const columns = [['Seller', (s) => s.storeName || s.businessName], ['Status', (s) => s.status], ['In pilot', (s) => (s.fbbPilot?.enabled ? 'Yes' : 'No')],
+  const columns = [['Seller', (s) => s.storeName || s.businessName], ['Status', (s) => <Badge value={s.status} />], ['In pilot', (s) => <Badge value={s.fbbPilot?.enabled ? 'yes' : 'no'} label={s.fbbPilot?.enabled ? 'In pilot' : 'Not in pilot'} />],
     ['Last change', (s) => (s.fbbPilot?.changedAt ? `${when(s.fbbPilot.changedAt)} — ${s.fbbPilot.note || ''}` : '—')], ['', toggle]];
   return (
     <section style={box}>
       <h3>Pilot sellers</h3>
       <p style={{ fontSize: 13 }}>
-        {data?.allSellers ? 'FBB is open to every seller (FBB_ALL_SELLERS_ENABLED), so this list is not needed right now.'
+        {data?.allSellers ? 'FBB is open to every seller, so this list is not needed right now.'
           : 'Only the sellers listed here can choose FBB, send stock and sell FBB items. Removing a seller stops new FBB activity; their placed orders, charges and returns carry on.'}
       </p>
       <Refused error={error} />
@@ -231,7 +244,7 @@ function Receiving() {
         <h3>Receipts</h3>
         <Refused error={receipts.error} />
         <Table rows={receipts.data?.rows || []} columns={[
-          ['Receipt', (r) => r.receiptNo], ['Seller', (r) => r.sellerId?.businessName || String(r.sellerId?._id || r.sellerId)], ['Status', (r) => r.status],
+          ['Receipt', (r) => r.receiptNo], ['Seller', (r) => r.sellerId?.businessName || String(r.sellerId?._id || r.sellerId)], ['Status', (r) => <Badge value={r.status} />],
           ['Lines (expected / received / accepted / damaged / rejected / missing)', (r) => r.lines.map((l) => <div key={l._id}>{l.productName}{l.variantName ? ` (${l.variantName})` : ''}: {l.expectedQty}/{l.receivedQty}/{l.acceptedQty}/{l.damagedQty}/{l.rejectedQty}/{l.missingQty}</div>)],
           ['Posted', (r) => when(r.postedAt)],
           ['', (r) => r.status === 'draft' && <><button type="button" style={primary} disabled={busy} onClick={() => post(r)}>Verify & post</button><button type="button" style={btn} disabled={busy} onClick={() => cancel(r)}>Cancel</button></>],
@@ -317,7 +330,7 @@ function Adjustments() {
         <Refused error={list.error} />
         <Table rows={list.data || []} columns={[
           ['When', (a) => when(a.createdAt)], ['Product', (a) => a.productId?.name], ['Seller', (a) => a.sellerId?.businessName], ['Bucket', (a) => a.bucket], ['Change', (a) => a.delta],
-          ['Reason', (a) => a.reason], ['Status', (a) => a.status],
+          ['Reason', (a) => a.reason], ['Status', (a) => <Badge value={a.status} />],
           ['', (a) => a.status === 'pending' && <><button type="button" style={primary} disabled={busy} onClick={() => decide(a, true)}>Approve</button><button type="button" style={btn} disabled={busy} onClick={() => decide(a, false)}>Reject</button></>],
         ]} empty="No adjustments." />
       </section>
@@ -419,7 +432,7 @@ function Orders() {
         ['Order', (o) => o.orderNo], ['Placed', (o) => when(o.createdAt)], ['Seller', (o) => o.items?.[0]?.sellerId?.businessName || '—'],
         ['Items', (o) => o.items.map((i, n) => <div key={n}>{i.qty} × {i.name}{i.variantName ? ` (${i.variantName})` : ''}</div>)],
         ['Deliver to', (o) => `${o.shippingAddress?.city || ''} ${o.shippingAddress?.pincode || ''}`], ['Payment', (o) => o.paymentMethod],
-        ['Status', (o) => `${o.status} · ${FBB_STAGE[o.fbb?.status] || o.fbb?.status || '—'}`],
+        ['Status', (o) => <><Badge value={o.status} /> <Badge value={o.fbb?.status} label={FBB_STAGE[o.fbb?.status] || o.fbb?.status || '—'} /></>],
         ['Delivery', (o) => o.shiprocket?.awb ? `Shiprocket ${o.shiprocket.awb}` : o.deliveryPartnerId ? 'Bulkimart rider' : o.needsManualAssignment ? 'Waiting for a rider' : '—'],
         ['', (o) => <>{actions(o)}{choosing === o._id && (o.fbb?.returnInspection?.status === 'pending'
           ? <Inspect order={o} onDone={async () => { setChoosing(null); await reload(); }} />
@@ -461,7 +474,7 @@ function Returns() {
       <p style={{ fontSize: 12 }}>Bulkimart decides FBB returns and brings them back to the warehouse. After it arrives, inspect it and restock or refund on the Returns & Refunds screen: resellable units go back on sale, others to the damaged bucket.</p>
       <Refused error={error} />
       <Table rows={data || []} columns={[
-        ['Return', (r) => r.returnNo || String(r._id).slice(-6)], ['Requested', (r) => when(r.requestedAt)], ['Reason', (r) => r.reason], ['Status', (r) => r.status], ['Pickup', (r) => r.pickup?.status || '—'],
+        ['Return', (r) => r.returnNo || String(r._id).slice(-6)], ['Requested', (r) => when(r.requestedAt)], ['Reason', (r) => r.reason], ['Status', (r) => <Badge value={r.status} />], ['Pickup', (r) => r.pickup?.status || '—'],
         ['', (r) => <>
           {['RETURN_REQUESTED', 'UNDER_REVIEW'].includes(r.status) && <><button type="button" style={primary} disabled={busy} onClick={() => decide(r, true)}>Approve</button><button type="button" style={btn} disabled={busy} onClick={() => decide(r, false)}>Reject</button></>}
           {r.status === 'APPROVED' && <button type="button" style={primary} onClick={() => setPicking(picking === r._id ? null : r._id)}>Arrange pickup</button>}
@@ -529,7 +542,7 @@ function Charges() {
         <Refused error={charges.error} />
         <Table rows={charges.data?.rows || []} columns={[
           ['When', (c) => when(c.createdAt)], ['Type', (c) => TYPE[c.type] || c.type], ['For', (c) => c.orderId?.orderNo || c.receiptId?.receiptNo || '—'], ['Qty', (c) => c.qty],
-          ['Rate', (c) => `${money(c.rate)} ${BASIS[c.basis] || ''}`], ['Amount', (c) => money(c.amount)], ['Rate version', (c) => c.configVersion], ['Status', (c) => c.status],
+          ['Rate', (c) => `${money(c.rate)} ${BASIS[c.basis] || ''}`], ['Amount', (c) => money(c.amount)], ['Rate version', (c) => c.configVersion], ['Status', (c) => <Badge value={c.status} />],
           ['', (c) => c.status === 'posted' && c.amountPaise > 0 && <button type="button" style={btn} disabled={busy} onClick={() => reverse(c)}>Reverse</button>],
         ]} empty="No charges yet." />
       </section>
@@ -549,11 +562,13 @@ export default function FbbTab() {
   const [section, setSection] = useState('overview');
   const View = VIEWS[section];
   return (
-    <div style={{ padding: 16 }}>
-      <h2 style={{ marginBottom: 4 }}>Fulfilled by Bulkimart</h2>
-      <p style={{ fontSize: 13, color: '#64748b', marginTop: 0 }}>Warehouse stock, FBB orders and returns, and FBB service charges.</p>
-      <nav aria-label="FBB sections" style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginBottom: 14 }}>
-        {SECTIONS.map(([id, label]) => <button key={id} type="button" aria-current={section === id ? 'page' : undefined} style={section === id ? primary : btn} onClick={() => setSection(id)}>{label}</button>)}
+    <div className="fbb-ws">
+      <div className="fbb-ws-head">
+        <h2 className="fbb-ws-title">Fulfilled by Bulkimart</h2>
+        <p className="fbb-ws-subtitle">Warehouse stock, FBB orders and returns, and FBB service charges.</p>
+      </div>
+      <nav aria-label="FBB sections" className="fbb-tabs">
+        {SECTIONS.map(([id, label]) => <button key={id} type="button" aria-current={section === id ? 'page' : undefined} className={`fbb-tab${section === id ? ' is-active' : ''}`} onClick={() => setSection(id)}>{label}</button>)}
       </nav>
       <View key={section} />
     </div>

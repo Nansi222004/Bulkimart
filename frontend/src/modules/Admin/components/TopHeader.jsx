@@ -20,6 +20,7 @@ const pageTitles = {
   'helpline-settings': 'Helpline & SOS Emergency Settings',
   'training-videos': 'Training & Coaching Videos',
   'cod-charges': 'Payment Settings · COD Charges',
+  fbb: 'FBB Warehouse & Orders',
 };
 
 const timeAgo = (iso) => {

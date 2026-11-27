@@ -1047,7 +1047,8 @@ export const acceptOrder = asyncHandler(async (req, res) => {
   // and leaving it out of the projection quietly treated every Quick order as a
   // Shop All one — claimable only at `dispatched`, which is exactly the window
   // early ringing exists to open.
-  const candidate = await Order.findById(req.params.id).select('items status type fulfillment deliveryType deliveryPartnerId deliveryId shippingAddress paymentId paymentMethod');
+  // `origin` is needed so an FBB order is collected from the Bulkimart warehouse, not the seller's shop.
+  const candidate = await Order.findById(req.params.id).select('items status type fulfillment deliveryType deliveryPartnerId deliveryId shippingAddress paymentId paymentMethod origin');
   if (!candidate) throw httpError(404, 'Order not found');
   if (!await orderPaymentReady(candidate)) throw httpError(409, 'Payment must be verified before accepting a delivery');
 

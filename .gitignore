@@ -106,6 +106,7 @@ PASSWORDS-README.txt
 !/backend/verification/env.js
 !/backend/verification/delivery-phase2b.test.js
 !/backend/verification/fbb-phase3.test.js
+!/backend/verification/fbb-rider-pickup.test.js
 !/mobile-seller/__tests__/
 /mobile-seller/__tests__/*
 !/mobile-seller/__tests__/deliveryMethod.test.js
