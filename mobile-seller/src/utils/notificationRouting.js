@@ -22,6 +22,8 @@ export function notificationTarget(n = {}) {
   if (orderId) return { screen: 'OrderDetail', params: { id: orderId } };
   if (ticketId) return { screen: 'TicketDetail', params: { id: ticketId } };
   if (/^\/seller\/item-returns/i.test(route)) return { screen: 'Returns' };
+  // FBB: stock arrived at / was accepted by the Bulkimart warehouse.
+  if (/^\/seller\/fbb(?:[/?#]|$)/i.test(route)) return { screen: 'Fbb' };
   if (/^\/seller\/(earnings|moneyrequest|paymenthistory)/i.test(route)) return { screen: 'Tabs', params: { screen: 'Earnings' } };
   if (/^\/seller\/(products|stock)/i.test(route) || id(meta.productId)) return { screen: 'Tabs', params: { screen: 'Products' } };
   if (/^\/seller\/support/i.test(route)) return { screen: 'Support' };

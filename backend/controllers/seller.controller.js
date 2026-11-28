@@ -1070,8 +1070,26 @@ export const getSellerFbb = asyncHandler(async (req, res) => {
   // Open to this seller only when the switches are on AND the seller is in the FBB pilot (or FBB is open to all).
   // A seller who has stock, receipts or charges keeps the view either way, so obligations stay visible.
   const available = fbbSellableFor(seller);
-  const active = available || warehouse.stock.length > 0 || warehouse.receipts.length > 0 || charges.total > 0;
-  res.status(200).json({ success: true, data: { available, active, ...warehouse, obligation: summary, charges, rates: preview } });
+  // "Send stock" guide: where to ship (active warehouses) and each FBB product's progress
+  // (waiting for stock → being checked → in warehouse / out of stock).
+  const { default: Warehouse } = await import('../models/Warehouse.js');
+  const [fbbProducts, warehouses] = await Promise.all([
+    Product.find({ sellerId: seller._id, deliveryMethod: 'fbb', isDeleted: { $ne: true } })
+      .select('name images status isActive isDraft createdAt variants._id variants.name fbb.convertedAt').sort({ createdAt: -1 }).limit(200).lean(),
+    Warehouse.find({ isActive: true }).select('name code phone address.line1 address.line2 address.city address.state address.pincode').sort({ name: 1 }).lean(),
+  ]);
+  const checking = new Set(warehouse.receipts.filter((r) => r.status === 'draft').flatMap((r) => r.lines.map((l) => String(l.productId))));
+  const received = new Set(warehouse.receipts.filter((r) => r.status === 'posted').flatMap((r) => r.lines.map((l) => String(l.productId))));
+  const products = fbbProducts.map((p) => {
+    const rows = warehouse.stock.filter((s) => String(s.productId) === String(p._id));
+    const forSale = rows.reduce((n, s) => n + (s.sellable || 0), 0);
+    const reserved = rows.reduce((n, s) => n + (s.reserved || 0), 0);
+    const stage = checking.has(String(p._id)) ? 'being_checked' : forSale > 0 ? 'on_sale' : received.has(String(p._id)) || reserved > 0 ? 'out_of_stock' : 'waiting_for_stock';
+    return { _id: p._id, name: p.name, image: p.images?.[0] || null, variants: (p.variants || []).map((v) => v.name).filter(Boolean),
+      listing: p.isDraft ? 'draft' : p.status, isActive: p.isActive, addedAt: p.fbb?.convertedAt || p.createdAt, forSale, reserved, stage };
+  });
+  const active = available || products.length > 0 || warehouse.stock.length > 0 || warehouse.receipts.length > 0 || charges.total > 0;
+  res.status(200).json({ success: true, data: { available, active, ...warehouse, products, warehouses, sellerName: seller.storeDetails?.name || seller.businessName, obligation: summary, charges, rates: preview } });
 });
 
 // @desc    Pay outstanding FBB charges in advance (Razorpay)

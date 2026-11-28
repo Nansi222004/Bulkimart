@@ -149,6 +149,12 @@ export default function ProductFormScreen({ route, navigation }) {
 
   const set = (key, value) => touch() || setForm((f) => ({ ...f, [key]: value }));
   const setVariant = (index, key, value) => touch() || setForm((f) => ({ ...f, variants: f.variants.map((v, i) => (i === index ? { ...v, [key]: value } : v)) }));
+  // FBB: stock is not entered by the seller. It stays 0 until the Bulkimart warehouse receives and verifies units
+  // (the server zeroes it too). A saved FBB product keeps showing its warehouse-backed stock.
+  const isFbbNew = form.deliveryMethod === 'fbb' && form.savedDeliveryMethod !== 'fbb';
+  useEffect(() => {
+    if (isFbbNew && form.variants.some((v) => String(v.stock) !== '0')) setForm((f) => ({ ...f, variants: f.variants.map((v) => ({ ...v, stock: '0' })) }));
+  }, [isFbbNew, form.variants]);
   // A new variant starts from the category's variant defaults too (only that variant is filled).
   const addVariant = () => touch() || setForm((f) => {
     const [fresh] = applyFieldDefaults({ specs: {}, variants: [blankVariant()] }, fields.filter((x) => x.isVariant)).variants;
@@ -285,6 +291,7 @@ export default function ProductFormScreen({ route, navigation }) {
               onChange={(v) => (v === 'fbb' && form.savedDeliveryMethod !== 'fbb' ? chooseFbb() : set('deliveryMethod', v))} />
             <Text style={type.small}>{DELIVERY_HINTS[form.deliveryMethod || 'easy_ship']}</Text>
             {form.savedDeliveryMethod === 'fbb' ? <Text style={type.small}>Stock for this product is managed by the Bulkimart warehouse (menu → FBB warehouse).</Text> : null}
+            {isFbbNew ? <InlineNotice tone="info">Stock is not entered here. It stays 0 until the Bulkimart warehouse receives and checks your units. After saving, open menu → FBB warehouse for the address and send your stock there with an invoice or challan.</InlineNotice> : null}
             {isEditing && form.deliveryMethod !== form.savedDeliveryMethod ? (
               <Text style={type.small}>Orders already placed keep their original delivery method. The change applies to new orders.</Text>
             ) : null}
@@ -389,7 +396,7 @@ export default function ProductFormScreen({ route, navigation }) {
               <AppInput style={styles.half} label="MRP (₹)" keyboardType="decimal-pad" value={String(v.mrp ?? '')} editable={!saving} onChangeText={(t) => setVariant(i, 'mrp', t.replace(/[^0-9.]/g, ''))} />
             </View>
             <View style={styles.pair}>
-              <AppInput style={styles.half} label="Stock" required keyboardType="number-pad" value={String(v.stock ?? '')} editable={!saving} onChangeText={(t) => setVariant(i, 'stock', t.replace(/\D/g, ''))} />
+              <AppInput style={styles.half} label={form.deliveryMethod === 'fbb' ? 'Stock (warehouse)' : 'Stock'} required={form.deliveryMethod !== 'fbb'} keyboardType="number-pad" value={String(v.stock ?? '')} editable={!saving && form.deliveryMethod !== 'fbb'} onChangeText={(t) => setVariant(i, 'stock', t.replace(/\D/g, ''))} />
               <AppInput style={styles.half} label="Weight" keyboardType="decimal-pad" value={String(v.weight ?? '')} editable={!saving} onChangeText={(t) => setVariant(i, 'weight', t.replace(/[^0-9.]/g, ''))} />
             </View>
             <OptionPicker label="Unit" value={v.unit || 'piece'} disabled={saving} options={UNITS.map((u) => ({ value: u, label: u }))} onChange={(u) => setVariant(i, 'unit', u)} />

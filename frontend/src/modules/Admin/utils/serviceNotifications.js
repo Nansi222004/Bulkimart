@@ -39,6 +39,11 @@ export function createAdminNotificationOpener() {
         actions.setTab('parcel-delivery'); actions.close();
         window.history.replaceState(null, '', n.route);
         window.dispatchEvent(new Event('parcel-booking-open'));
+      } else if (/^\/admin\/fbb(\?section=[a-z]+)?$/i.test(n.route || '')) {
+        // FBB alerts (new FBB product / order): open that section of the FBB workspace.
+        actions.setTab('fbb'); actions.close();
+        window.history.replaceState(null, '', n.route);
+        window.dispatchEvent(new Event('fbb-section-open'));
       } else if (n.metadata?.applicationId || n.route === '/admin/services') {
         const id = serviceApplicationId(n.metadata?.applicationId);
         // Older paid customer alerts used the seller application route. Resolve

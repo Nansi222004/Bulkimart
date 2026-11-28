@@ -12,6 +12,7 @@ import { describeFbbRates, getSellerFbb, startFbbPayment } from '../../services/
 import { openRazorpayCheckout } from '../../services/razorpay';
 import { money } from '../../utils/format';
 import { spacing, type } from '../../theme';
+import FbbSendStock from './FbbSendStock';
 
 // Native port of frontend/src/modules/Seller/components/FbbTab.jsx: the seller's read-only view of Fulfilled by
 // Bulkimart — warehouse stock, receipts with discrepancies, charges and what is owed (payable in advance).
@@ -47,6 +48,8 @@ export default function FbbScreen() {
     <Screen refreshing={refreshing} onRefresh={refresh}>
       <Text style={type.small}>Bulkimart stores, packs and ships these products from its warehouse. Stock changes only when the warehouse receives, sells or inspects returned units; ask Bulkimart support for any correction.</Text>
       {!data.available ? <InlineNotice tone="info">Fulfilled by Bulkimart is closed to new listings and orders right now. Existing stock, orders and charges continue as usual.</InlineNotice> : null}
+
+      <FbbSendStock data={data} />
 
       <Card title="What you owe">
         <View style={styles.rows}>

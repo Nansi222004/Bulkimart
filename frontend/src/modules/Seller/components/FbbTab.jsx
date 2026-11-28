@@ -4,6 +4,7 @@ import { boundedFetch } from '../../../utils/portalRequests';
 import { getPortalToken } from '../../../utils/portalSession';
 import { openRazorpayCheckout } from '../../../utils/razorpayCheckout';
 import { FbbChargeSummary } from './DeliveryMethodField';
+import './SellerFbb.css';
 
 /**
  * Fulfilled by Bulkimart — the seller's read-only view: stock held in the Bulkimart warehouse,
@@ -36,6 +37,68 @@ export function useFbbNavigation() {
     return () => { alive = false; };
   }, []);
   return visible;
+}
+
+const STAGES = {
+  waiting_for_stock: ['Send stock', 'is-warn', 'Not received yet. Send it to the warehouse below.'],
+  being_checked: ['Being checked', 'is-info', 'The warehouse received it and is counting it.'],
+  on_sale: ['On sale', 'is-good', ''],
+  out_of_stock: ['Out of stock', 'is-bad', 'Everything sold. Send more stock.'],
+};
+const STEPS = [
+  ['Choose FBB', 'Add a product with “Fulfilled by Bulkimart” (or switch an existing product to it).'],
+  ['Pack and send', 'Pack the stock and send it to the warehouse below with an invoice or challan listing each product and quantity.'],
+  ['Warehouse checks', 'Bulkimart counts what arrived. You get a notification and see it under Receipts.'],
+  ['On sale', 'Accepted units go on sale. Bulkimart packs and ships every order for you.'],
+];
+
+/** How to send stock: steps, where to send it, and where each FBB product stands. */
+function SendStockGuide({ data }) {
+  const products = data.products || [];
+  const warehouses = data.warehouses || [];
+  const waiting = products.filter((p) => p.stage === 'waiting_for_stock' || p.stage === 'out_of_stock');
+  return (
+    <>
+      <h3>How to send stock</h3>
+      <ol className="sfbb-steps">
+        {STEPS.map(([title, text], i) => <li key={title}><span className="sfbb-num">{i + 1}</span><div><strong>{title}</strong><p>{text}</p></div></li>)}
+      </ol>
+
+      <h3>Send your stock to</h3>
+      {warehouses.length === 0 ? <p>No Bulkimart warehouse is open right now. Contact Bulkimart support before sending stock.</p> : (
+        <div className="sfbb-warehouses">
+          {warehouses.map((w) => (
+            <div key={w._id} className="sfbb-warehouse">
+              <strong>{w.name}</strong>
+              <span>{[w.address?.line1, w.address?.line2, w.address?.city, w.address?.state, w.address?.pincode].filter(Boolean).join(', ')}</span>
+              {w.phone && <span>Phone: <a href={`tel:${w.phone}`}>{w.phone}</a></span>}
+              <span className="sfbb-hint">Write <b>{data.sellerName || 'your store name'}</b> and warehouse code <b>{w.code}</b> on every box, and put the invoice or challan inside.</span>
+            </div>
+          ))}
+        </div>
+      )}
+
+      <h3>Your FBB products {waiting.length > 0 && <span className="sfbb-badge is-warn">{waiting.length} need stock</span>}</h3>
+      {products.length === 0 ? <p>You have no FBB products yet. Add a product and choose “Fulfilled by Bulkimart” as the delivery method.</p> : (
+        <div className="sfbb-products">
+          {products.map((p) => {
+            const [label, tone, help] = STAGES[p.stage] || [p.stage, '', ''];
+            return (
+              <div key={p._id} className="sfbb-product">
+                {p.image ? <img src={p.image} alt="" /> : <span className="sfbb-ph" aria-hidden="true">📦</span>}
+                <div className="sfbb-product-body">
+                  <strong>{p.name}</strong>
+                  <span>{p.variants.join(', ') || 'Single variant'} · added {date(p.addedAt)}{p.listing === 'pending' ? ' · waiting for listing approval' : p.listing === 'draft' ? ' · draft' : ''}</span>
+                  {p.stage === 'on_sale' ? <span>{p.forSale} for sale{p.reserved ? ` · ${p.reserved} in orders` : ''}</span> : help && <span>{help}</span>}
+                </div>
+                <span className={`sfbb-badge ${tone}`}>{label}</span>
+              </div>
+            );
+          })}
+        </div>
+      )}
+    </>
+  );
 }
 
 export default function FbbTab() {
@@ -76,6 +139,8 @@ export default function FbbTab() {
       <h2>Fulfilled by Bulkimart</h2>
       <p>Bulkimart stores, packs and ships these products from its warehouse. Stock here changes only when the warehouse receives, sells or inspects returned units; ask Bulkimart support for any correction.</p>
       {!data.available && <p role="status">Fulfilled by Bulkimart is closed to new listings and orders right now. Existing stock, orders and charges continue as usual.</p>}
+
+      <SendStockGuide data={data} />
 
       <h3>What you owe</h3>
       <dl style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(160px, 1fr))', gap: 8 }}>

@@ -35,6 +35,7 @@ import DeliveryMethodChange from '../models/DeliveryMethodChange.js';
 import { selfDeliveryAreaConfigured } from '../services/selfDeliveryArea.service.js';
 import WarehouseStock from '../models/WarehouseStock.js';
 import { fbbReadiness, currentChargeConfig, convertProductToFbb } from '../services/warehouse.service.js';
+import { alertAdminsNewFbbProduct } from '../services/fbbAdminAlerts.service.js';
 import { chargePreview } from '../services/fbbCharges.service.js';
 
 // @desc    FBB charges a seller sees before choosing or converting to Fulfilled by Bulkimart
@@ -50,6 +51,7 @@ export const convertToFbb = asyncHandler(async (req, res) => {
   const seller = await Seller.findOne({ userId: req.user._id });
   if (!seller || seller.status !== 'approved') throw httpError(403, 'Approved Seller account required');
   const result = await convertProductToFbb({ productId: req.params.id, seller, userId: req.user._id, acceptedChargeVersion: req.body.acceptedChargeVersion });
+  if (!result.alreadyConverted) void alertAdminsNewFbbProduct(result.product, { sellerName: seller.storeDetails?.name || seller.businessName, converted: true });
   return ok(res, result, result.alreadyConverted ? 'Already Fulfilled by Bulkimart' : 'Converted to Fulfilled by Bulkimart. Send the stock to the warehouse; it goes on sale once received.');
 });
 
@@ -925,6 +927,9 @@ export const createProduct = asyncHandler(async (req, res) => {
     await DeliveryMethodChange.create({ productId: product._id, sellerId: product.sellerId, from: DELIVERY_METHOD.EASY_SHIP, to: product.deliveryMethod, actorType: 'seller', actorId: req.user._id, source: 'product_create' })
       .catch((error) => console.error('[DELIVERY METHOD] history write failed:', error.message));
   }
+
+  // Tell the warehouse team a new FBB listing is coming (drafts wait until published).
+  if (product.deliveryMethod === DELIVERY_METHOD.FBB && !saveAsDraft) void alertAdminsNewFbbProduct(product, { sellerName: productData.sellerName });
 
   // Populate so the seller's list can render immediately without a refetch
   await product.populate('category', 'name slug type');

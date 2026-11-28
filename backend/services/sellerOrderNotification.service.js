@@ -4,6 +4,7 @@ import Seller from '../models/Seller.js';
 import { orderPaymentReady } from './orderPaymentEligibility.service.js';
 import { notifySeller, NOTIFICATION_EVENT } from './notification.service.js';
 import { emitToSeller } from '../socket/rooms.js';
+import { alertAdminsNewFbbOrder } from './fbbAdminAlerts.service.js';
 
 let indexReady;
 export const ensureSellerNotificationIndex = () => indexReady ||= Notification.collection.createIndex(
@@ -14,6 +15,8 @@ export async function publishEligibleSellerOrder(orderId) {
   const order = await Order.findById(orderId);
   if (!order || order.status !== 'placed' || order.items.every(i => i.fulfillmentType === 'digital') || !await orderPaymentReady(order)) return;
   await ensureSellerNotificationIndex();
+  // FBB: the warehouse team fulfils this order, so admins are told too (deduped; never blocks the seller alert).
+  await alertAdminsNewFbbOrder(order).catch(() => {});
   const sellers = [...new Set(order.items.map(i => i.sellerId && String(i.sellerId)).filter(Boolean))];
   for (const sellerId of sellers) {
     const seller = await Seller.findOne({ _id: sellerId, status: 'approved' }).populate('userId', 'isActive roles');

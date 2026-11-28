@@ -9,6 +9,7 @@ import WarehouseStock from '../models/WarehouseStock.js';
 import WarehouseReceipt from '../models/WarehouseReceipt.js';
 import WarehouseAdjustment from '../models/WarehouseAdjustment.js';
 import StockMovement from '../models/StockMovement.js';
+import { alertSellerStockArrived, alertSellerStockPosted } from '../services/fbbAdminAlerts.service.js';
 import { fbbEnabled, fbbChargesEnabled, warehouseOperationsEnabled, deliveryMethodsEnabled, fbbAllSellersEnabled } from '../services/deliveryMethod.service.js';
 import { fbbServiceabilityStrict } from '../services/fbbServiceability.service.js';
 import { fbbReadiness, saveWarehouse, createReceipt, postReceipt, cancelDraftReceipt, requestAdjustment, decideAdjustment, inventoryReconciliation, resyncMirror } from '../services/warehouse.service.js';
@@ -76,7 +77,17 @@ export const setFbbPilotSeller = asyncHandler(async (req, res) => {
 /* ---- stock, receiving, adjustments ---------------------------------------------------------------------------- */
 export const listFbbProductsForReceiving = asyncHandler(async (req, res) => {
   const filter = { deliveryMethod: 'fbb', isDeleted: { $ne: true }, ...(req.query.sellerId ? { sellerId: oid(req.query.sellerId, 'seller') } : {}) };
-  return ok(res, await Product.find(filter).select('name sellerId sellerName variants._id variants.name variants.stock fbb.convertedAt').populate('sellerId', 'businessName').sort({ name: 1 }).limit(500).lean());
+  const products = await Product.find(filter).select('name sellerId sellerName images status isActive isDraft createdAt variants._id variants.name variants.stock fbb.convertedAt fbb.fromMethod')
+    .populate('sellerId', 'businessName').sort({ name: 1 }).limit(500).lean();
+  // Warehouse totals per product (all warehouses), so the Products list shows what has arrived.
+  const totals = new Map((await WarehouseStock.aggregate([
+    { $match: { productId: { $in: products.map((p) => p._id) } } },
+    { $group: { _id: '$productId', sellable: { $sum: '$sellable' }, reserved: { $sum: '$reserved' }, quarantine: { $sum: { $ifNull: ['$quarantine', 0] } }, damaged: { $sum: '$damaged' } } },
+  ])).map((t) => [String(t._id), t]));
+  return ok(res, products.map((p) => {
+    const t = totals.get(String(p._id));
+    return { ...p, warehouse: t ? { sellable: t.sellable, reserved: t.reserved, quarantine: t.quarantine, damaged: t.damaged } : null };
+  }));
 });
 export const listWarehouseStock = asyncHandler(async (req, res) => {
   const filter = { ...(req.query.sellerId ? { sellerId: oid(req.query.sellerId, 'seller') } : {}), ...(req.query.warehouseId ? { warehouseId: oid(req.query.warehouseId, 'warehouse') } : {}) };
@@ -104,10 +115,12 @@ export const listReceipts = asyncHandler(async (req, res) => {
 });
 export const createReceiptAdmin = asyncHandler(async (req, res) => {
   const result = await createReceipt({ ...req.body, idempotencyKey: req.get('Idempotency-Key') || req.body?.idempotencyKey, adminId: req.user._id });
+  if (!result.alreadyRecorded) void alertSellerStockArrived(result.receipt);
   return ok(res, result.receipt, result.alreadyRecorded ? 'Receipt already recorded' : 'Receipt counted (draft). Verify and post it to add the stock.');
 });
 export const postReceiptAdmin = asyncHandler(async (req, res) => {
   const result = await postReceipt({ receiptId: req.params.id, adminId: req.user._id });
+  if (!result.alreadyPosted) void alertSellerStockPosted(result.receipt);
   return ok(res, result.receipt, result.alreadyPosted ? 'Receipt already posted' : 'Receipt posted: accepted units are now on sale');
 });
 export const cancelReceiptAdmin = asyncHandler(async (req, res) => ok(res, await cancelDraftReceipt({ receiptId: oid(req.params.id, 'receipt') }), 'Draft receipt cancelled'));

@@ -5,45 +5,85 @@ import './FbbTab.css';
 
 /**
  * Fulfilled by Bulkimart — admin workspace (/api/admin/fbb).
- * Warehouse work (warehouses, receiving, stock, adjustments, orders, returns) needs `manage_warehouse`;
+ * Warehouse work (warehouses, products, receiving, stock, adjustments, orders, returns) needs `manage_warehouse`;
  * FBB charges and billing need `manage_finance`. The server enforces both; a section a person may not use
  * shows the server's refusal instead of data.
+ * Notifications open a section through `/admin/fbb?section=<id>` (see utils/serviceNotifications.js).
  */
 const SECTIONS = [
-  ['overview', 'Overview'], ['receiving', 'Receiving'], ['stock', 'Stock'], ['adjustments', 'Adjustments'],
+  ['overview', 'Overview'], ['products', 'Products'], ['receiving', 'Receiving'], ['stock', 'Stock'], ['adjustments', 'Adjustments'],
   ['orders', 'Orders'], ['returns', 'Returns'], ['warehouses', 'Warehouses'], ['pilot', 'Pilot sellers'], ['charges', 'Charges & billing'],
 ];
+const SECTION_IDS = SECTIONS.map(([id]) => id);
+const sectionFromUrl = () => {
+  const s = typeof window !== 'undefined' ? new URLSearchParams(window.location.search).get('section') : null;
+  return SECTION_IDS.includes(s) ? s : null;
+};
 const money = (n) => `₹${Number(n || 0).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
-const when = (d) => (d ? new Date(d).toLocaleString('en-IN') : '—');
+const when = (d) => (d ? new Date(d).toLocaleString('en-IN', { dateStyle: 'medium', timeStyle: 'short' }) : '—');
 const key = () => (typeof crypto !== 'undefined' && crypto.randomUUID ? crypto.randomUUID() : `rcpt-${Date.now()}-${Math.random().toString(36).slice(2)}`);
-// Card / button looks come from FbbTab.css (Super Admin theme); these keep spacing for the inline layouts below.
-const box = {};
-const table = { width: '100%', borderCollapse: 'collapse', fontSize: 13 };
-const cell = { borderBottom: '1px solid #eef2f7', padding: '10px 12px', textAlign: 'left', verticalAlign: 'top' };
-const btn = { minHeight: 36, padding: '7px 14px', borderRadius: 8, border: '1px solid #cbd5e1', background: '#fff', color: '#172b4d', cursor: 'pointer', fontSize: 13, fontWeight: 600, marginRight: 6, marginBottom: 4 };
-const primary = { ...btn, background: 'var(--sa-primary, #08b9e8)', color: '#fff', borderColor: 'var(--sa-primary, #08b9e8)' };
+const sellerName = (s) => s?.businessName || s?.storeName || '—';
 
-/** Coloured pill for a status value. */
-const GOOD = ['posted', 'approved', 'active', 'delivered', 'handed_over', 'completed', 'refunded', 'settled', 'yes'];
+/* ------------------------------------------------------------------ shared UI ------------------------------------ */
+const GOOD = ['posted', 'approved', 'active', 'delivered', 'handed_over', 'completed', 'refunded', 'settled', 'yes', 'in_stock'];
 const BAD = ['cancelled', 'rejected', 'failed', 'reversed', 'no'];
-const WARN = ['draft', 'pending', 'awaiting_acceptance', 'return_requested', 'under_review', 'awaiting_return', 'placed'];
+const WARN = ['draft', 'pending', 'awaiting_acceptance', 'return_requested', 'under_review', 'awaiting_return', 'placed', 'waiting'];
 function Badge({ value, label }) {
   const v = String(value ?? '').toLowerCase();
   const tone = GOOD.includes(v) ? 'is-good' : BAD.includes(v) ? 'is-bad' : WARN.includes(v) ? 'is-warn' : 'is-info';
   return <span className={`fbb-badge ${tone}`}>{label ?? String(value ?? '—').replace(/_/g, ' ')}</span>;
 }
 
-function Table({ columns, rows, empty = 'Nothing here.' }) {
+const Btn = ({ primary, ghost, className = '', ...props }) => (
+  <button type="button" className={`fbb-btn${primary ? ' is-primary' : ''}${ghost ? ' is-ghost' : ''} ${className}`.trim()} {...props} />
+);
+
+/** A stacked form field: label on top, control below, optional hint. */
+const Field = ({ label, hint, span, children }) => (
+  <label className={`fbb-field${span ? ` span-${span}` : ''}`}>
+    <span className="fbb-field-label">{label}</span>
+    {children}
+    {hint && <span className="fbb-field-hint">{hint}</span>}
+  </label>
+);
+
+/** Card header: title + short description on the left, an optional action on the right. */
+const CardHead = ({ title, children, action }) => (
+  <div className="fbb-card-head">
+    <div>
+      <h3>{title}</h3>
+      {children && <p>{children}</p>}
+    </div>
+    {action && <div className="fbb-card-action">{action}</div>}
+  </div>
+);
+
+/** `expand(row)` renders a full-width panel under that row (used for delivery choice, inspection, pickup). */
+function Table({ columns, rows, empty = 'Nothing here.', expand }) {
   if (!rows?.length) return <p className="fbb-empty">{empty}</p>;
   return (
     <div className="fbb-table-wrap">
-      <table style={table}>
-        <thead><tr>{columns.map(([label]) => <th key={label} style={{ ...cell, fontWeight: 600 }}>{label}</th>)}</tr></thead>
-        <tbody>{rows.map((row, i) => <tr key={row._id || row.id || i}>{columns.map(([label, render]) => <td key={label} style={cell}>{render(row)}</td>)}</tr>)}</tbody>
+      <table className="fbb-table">
+        <thead><tr>{columns.map(([label], i) => <th key={label || `c${i}`}>{label}</th>)}</tr></thead>
+        <tbody>{rows.map((row, i) => {
+          const extra = expand?.(row);
+          return (
+            <React.Fragment key={row._id || row.id || i}>
+              <tr>{columns.map(([label, render], c) => <td key={label || `c${c}`} className={label ? undefined : 'fbb-actions-cell'}>{render(row)}</td>)}</tr>
+              {extra && <tr className="fbb-expand-row"><td colSpan={columns.length}>{extra}</td></tr>}
+            </React.Fragment>
+          );
+        })}</tbody>
       </table>
     </div>
   );
 }
+
+const Segmented = ({ options, value, onChange }) => (
+  <div className="fbb-seg" role="tablist">
+    {options.map(([v, l]) => <button key={v} type="button" role="tab" aria-selected={value === v} className={value === v ? 'is-active' : ''} onClick={() => onChange(v)}>{l}</button>)}
+  </div>
+);
 
 /** Load once per section; `error` holds the server's refusal (e.g. missing permission). */
 function useLoad(path, deps = []) {
@@ -70,14 +110,34 @@ function useAct() {
 }
 
 const Refused = ({ error }) => error ? <p role="alert" className="fbb-error">{error}</p> : null;
+const Loading = () => <p className="fbb-loading">Loading…</p>;
 
 /* ------------------------------------------------------------------ overview ------------------------------------- */
-function Overview() {
+const FLOW = [
+  ['Seller', 'Lists a product with “Fulfilled by Bulkimart” (or moves an existing one) and sends the stock to the warehouse.', 'products'],
+  ['Warehouse team', 'Counts the delivery under Receiving, then verifies and posts it. Accepted units go on sale.', 'receiving'],
+  ['Customer', 'Orders the product. The order appears under Orders → To fulfil (you also get a notification).', 'orders'],
+  ['Warehouse team', 'Accepts, picks and packs the order, then sends it with a Bulkimart rider or Shiprocket.', 'orders'],
+  ['Finance', 'Storage, packaging and fulfilment charges are booked and deducted from the seller’s earnings.', 'charges'],
+];
+const ROLES = [
+  ['Seller', 'Seller app → Fulfilled by Bulkimart', 'Chooses FBB for a product, ships stock to the warehouse, sees stock, receipts and charges, can pay charges in advance. Cannot change warehouse stock.'],
+  ['Warehouse team', 'Admin with “manage_warehouse” (or Super Admin)', 'Products, Receiving, Stock, Adjustments, Orders, Returns, Warehouses and Pilot sellers.'],
+  ['Finance team', 'Admin with “manage_finance” (or Super Admin)', 'Charges & billing: rate versions, outstanding by seller, deductions, reversals.'],
+  ['Rider / Shiprocket', 'Delivery app or courier', 'Picks the packed parcel up from the warehouse (not the seller’s shop) and delivers it.'],
+];
+
+function Overview({ go }) {
   const { data, error } = useLoad('/fbb/overview');
   if (error) return <Refused error={error} />;
-  if (!data) return <p>Loading…</p>;
+  if (!data) return <Loading />;
   // Server switches are internal and not shown here; the admin sees only what is left to set up.
   const { ready, blockers = [] } = data.readiness || {};
+  const stats = [
+    ['Active warehouses', data.counts.warehouses, false, 'warehouses'], ['Pilot sellers', data.counts.pilotSellers ?? 0, false, 'pilot'],
+    ['FBB products', data.counts.fbbProducts, false, 'products'], ['Orders to fulfil', data.counts.openOrders, true, 'orders'],
+    ['Receipts to post', data.counts.draftReceipts, true, 'receiving'], ['Adjustments to approve', data.counts.pendingAdjustments, true, 'adjustments'],
+  ];
   return (
     <>
       <section>
@@ -92,19 +152,89 @@ function Overview() {
         </div>
       </section>
       <section>
-        <h3>Today</h3>
+        <CardHead title="Today">Click a card to open that section.</CardHead>
         <div className="fbb-stats">
-          {[['Active warehouses', data.counts.warehouses], ['Pilot sellers', data.counts.pilotSellers ?? 0], ['FBB products', data.counts.fbbProducts],
-            ['Orders to fulfil', data.counts.openOrders, true], ['Receipts to post', data.counts.draftReceipts, true], ['Adjustments to approve', data.counts.pendingAdjustments, true]]
-            .map(([label, value, attention]) => (
-              <div key={label} className={`fbb-stat${attention && value > 0 ? ' is-attention' : ''}`}>
-                <div className="fbb-stat-label">{label}</div>
-                <div className="fbb-stat-value">{value ?? 0}</div>
-              </div>
-            ))}
+          {stats.map(([label, value, attention, target]) => (
+            <button type="button" key={label} className={`fbb-stat${attention && value > 0 ? ' is-attention' : ''}`} onClick={() => go(target)}>
+              <span className="fbb-stat-label">{label}</span>
+              <span className="fbb-stat-value">{value ?? 0}</span>
+            </button>
+          ))}
+        </div>
+      </section>
+      <section>
+        <CardHead title="How FBB works">From the seller’s product to the customer’s door.</CardHead>
+        <ol className="fbb-flow">
+          {FLOW.map(([who, what, target], i) => (
+            <li key={i}>
+              <span className="fbb-flow-num">{i + 1}</span>
+              <div><strong>{who}</strong><p>{what}</p></div>
+              <Btn ghost onClick={() => go(target)}>Open</Btn>
+            </li>
+          ))}
+        </ol>
+      </section>
+      <section>
+        <CardHead title="Who does what">Each admin sees only the sections their permissions allow.</CardHead>
+        <div className="fbb-roles">
+          {ROLES.map(([role, where, does]) => (
+            <div key={role} className="fbb-role">
+              <strong>{role}</strong>
+              <span className="fbb-role-where">{where}</span>
+              <p>{does}</p>
+            </div>
+          ))}
         </div>
       </section>
     </>
+  );
+}
+
+/* ------------------------------------------------------------------ products ------------------------------------- */
+function Products({ onReceive }) {
+  const { data, error } = useLoad('/fbb/products');
+  const [q, setQ] = useState('');
+  const [filter, setFilter] = useState('all');
+  const rows = useMemo(() => {
+    const term = q.trim().toLowerCase();
+    return (data || []).filter((p) => {
+      const inStock = (p.warehouse?.sellable || 0) + (p.warehouse?.reserved || 0) > 0;
+      if (filter === 'waiting' && inStock) return false;
+      if (filter === 'stocked' && !inStock) return false;
+      return !term || p.name?.toLowerCase().includes(term) || (p.sellerId?.businessName || p.sellerName || '').toLowerCase().includes(term);
+    });
+  }, [data, q, filter]);
+  const waiting = (data || []).filter((p) => !((p.warehouse?.sellable || 0) + (p.warehouse?.reserved || 0))).length;
+  return (
+    <section>
+      <CardHead title="FBB products">
+        Every product a seller has listed for Fulfilled by Bulkimart. A new product shows “Waiting for stock” until you count its delivery under Receiving.
+      </CardHead>
+      <Refused error={error} />
+      {!data && !error ? <Loading /> : (
+        <>
+          <div className="fbb-toolbar">
+            <input className="fbb-search" placeholder="Search product or seller" value={q} onChange={(e) => setQ(e.target.value)} />
+            <Segmented value={filter} onChange={setFilter} options={[['all', `All (${data?.length || 0})`], ['waiting', `Waiting for stock (${waiting})`], ['stocked', 'In warehouse']]} />
+          </div>
+          <Table rows={rows} empty={data?.length ? 'No product matches.' : 'No seller has listed an FBB product yet.'} columns={[
+            ['Product', (p) => (
+              <div className="fbb-product">
+                {p.images?.[0] ? <img src={p.images[0]} alt="" /> : <span className="fbb-product-ph" aria-hidden="true">📦</span>}
+                <div><strong>{p.name}</strong><span>{(p.variants || []).map((v) => v.name).filter(Boolean).join(', ') || 'Single variant'}</span></div>
+              </div>
+            )],
+            ['Seller', (p) => p.sellerId?.businessName || p.sellerName || '—'],
+            ['Listing', (p) => (p.isDraft ? <Badge value="draft" label="Draft" /> : <Badge value={p.status} label={p.status === 'approved' ? (p.isActive ? 'Live' : 'Approved · hidden') : undefined} />)],
+            ['Added to FBB', (p) => <>{when(p.fbb?.convertedAt || p.createdAt)}<div className="fbb-sub">{p.fbb?.fromMethod && p.fbb.fromMethod !== 'new_listing' ? `Moved from ${String(p.fbb.fromMethod).replace(/_/g, ' ')}` : 'New listing'}</div></>],
+            ['In warehouse', (p) => (p.warehouse && (p.warehouse.sellable + p.warehouse.reserved + p.warehouse.quarantine + p.warehouse.damaged) > 0
+              ? <div className="fbb-sub-stack"><span><strong>{p.warehouse.sellable}</strong> for sale</span>{p.warehouse.reserved > 0 && <span>{p.warehouse.reserved} reserved</span>}{p.warehouse.quarantine > 0 && <span>{p.warehouse.quarantine} to inspect</span>}{p.warehouse.damaged > 0 && <span>{p.warehouse.damaged} damaged</span>}</div>
+              : <Badge value="waiting" label="Waiting for stock" />)],
+            ['', (p) => <Btn primary onClick={() => onReceive(p)}>Count delivery</Btn>],
+          ]} />
+        </>
+      )}
+    </section>
   );
 }
 
@@ -119,27 +249,33 @@ function Warehouses() {
     const payload = { ...form, address: { ...form.address, lat: Number(form.address.lat), lng: Number(form.address.lng) } };
     return form._id ? adminPut(`/fbb/warehouses/${form._id}`, payload) : adminPost('/fbb/warehouses', payload);
   }, async () => { setForm(null); await reload(); });
-  const field = (label, path, type = 'text') => {
+  const field = (label, path, { type = 'text', span, hint, placeholder } = {}) => {
     const value = path.startsWith('address.') ? form.address[path.slice(8)] : form[path];
-    return <label style={{ display: 'grid', fontSize: 12, gap: 2 }}>{label}<input type={type} value={value ?? ''} onChange={(e) => set(path, e.target.value)} disabled={busy} /></label>;
+    return <Field label={label} span={span} hint={hint}><input type={type} value={value ?? ''} placeholder={placeholder} onChange={(e) => set(path, e.target.value)} disabled={busy} /></Field>;
   };
   return (
-    <section style={box}>
-      <h3>Warehouses</h3>
+    <section>
+      <CardHead title="Warehouses" action={!form && <Btn primary onClick={() => setForm(EMPTY_WAREHOUSE)}>+ Add warehouse</Btn>}>
+        Where FBB stock is kept and orders ship from. FBB stays closed until at least one warehouse is active.
+      </CardHead>
       <Refused error={error} />
       <Table rows={data || []} columns={[
-        ['Code', (w) => w.code], ['Name', (w) => w.name], ['Address', (w) => [w.address?.line1, w.address?.city, w.address?.pincode].filter(Boolean).join(', ')],
-        ['Shiprocket pickup', (w) => w.shiprocketPickupLocation || '—'], ['Active', (w) => <Badge value={w.isActive ? 'active' : 'cancelled'} label={w.isActive ? 'Active' : 'Inactive'} />],
-        ['', (w) => <button type="button" style={btn} onClick={() => setForm({ ...EMPTY_WAREHOUSE, ...w, address: { ...EMPTY_WAREHOUSE.address, ...w.address } })}>Edit</button>],
+        ['Code', (w) => <strong>{w.code}</strong>], ['Name', (w) => w.name], ['Address', (w) => [w.address?.line1, w.address?.city, w.address?.pincode].filter(Boolean).join(', ')],
+        ['Shiprocket pickup', (w) => w.shiprocketPickupLocation || '—'], ['Status', (w) => <Badge value={w.isActive ? 'active' : 'cancelled'} label={w.isActive ? 'Active' : 'Inactive'} />],
+        ['', (w) => <Btn onClick={() => setForm({ ...EMPTY_WAREHOUSE, ...w, address: { ...EMPTY_WAREHOUSE.address, ...w.address } })}>Edit</Btn>],
       ]} empty="No warehouse yet. FBB stays closed until one is active." />
-      {!form && <button type="button" style={primary} onClick={() => setForm(EMPTY_WAREHOUSE)}>Add warehouse</button>}
       {form && (
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: 8, marginTop: 10 }}>
-          {field('Code', 'code')}{field('Name', 'name')}{field('Phone', 'phone')}{field('Shiprocket pickup location name', 'shiprocketPickupLocation')}
-          {field('Address line 1', 'address.line1')}{field('Address line 2', 'address.line2')}{field('City', 'address.city')}{field('State', 'address.state')}
-          {field('Pincode', 'address.pincode')}{field('Latitude', 'address.lat', 'number')}{field('Longitude', 'address.lng', 'number')}
-          <label style={{ fontSize: 12 }}><input type="checkbox" checked={form.isActive !== false} onChange={(e) => set('isActive', e.target.checked)} /> Active</label>
-          <div><button type="button" style={primary} disabled={busy} onClick={save}>Save</button><button type="button" style={btn} onClick={() => setForm(null)}>Cancel</button></div>
+        <div className="fbb-form-panel">
+          <h4>{form._id ? `Edit ${form.name || 'warehouse'}` : 'New warehouse'}</h4>
+          <div className="fbb-form">
+            {field('Code', 'code', { placeholder: 'IDR-01' })}{field('Name', 'name', { span: 2 })}
+            {field('Phone', 'phone', { type: 'tel' })}{field('Shiprocket pickup location', 'shiprocketPickupLocation', { span: 2, hint: 'Exact pickup name in your Shiprocket account' })}
+            {field('Address line 1', 'address.line1', { span: 2 })}{field('Address line 2', 'address.line2')}
+            {field('City', 'address.city')}{field('State', 'address.state')}{field('Pincode', 'address.pincode')}
+            {field('Latitude', 'address.lat', { type: 'number' })}{field('Longitude', 'address.lng', { type: 'number' })}
+            <label className="fbb-check"><input type="checkbox" checked={form.isActive !== false} onChange={(e) => set('isActive', e.target.checked)} /> Active</label>
+          </div>
+          <div className="fbb-actions"><Btn primary disabled={busy} onClick={save}>Save warehouse</Btn><Btn onClick={() => setForm(null)}>Cancel</Btn></div>
         </div>
       )}
     </section>
@@ -155,38 +291,70 @@ function PilotSellers() {
   const [note, setNote] = useState('');
   const search = () => act(async () => { const res = await adminGet(`/fbb/pilot-sellers${qs({ q })}`); setFound(res.data.rows); return { message: `${res.data.rows.length} found` }; });
   const change = (seller, enabled) => act(() => adminPut(`/fbb/pilot-sellers/${seller._id}`, { enabled, note }), async () => { setFound(null); await reload(); });
-  const toggle = (s) => <button type="button" style={s.fbbPilot?.enabled ? btn : primary} disabled={busy || note.trim().length < 5}
-    onClick={() => change(s, !s.fbbPilot?.enabled)}>{s.fbbPilot?.enabled ? 'Remove from pilot' : 'Add to pilot'}</button>;
-  const columns = [['Seller', (s) => s.storeName || s.businessName], ['Status', (s) => <Badge value={s.status} />], ['In pilot', (s) => <Badge value={s.fbbPilot?.enabled ? 'yes' : 'no'} label={s.fbbPilot?.enabled ? 'In pilot' : 'Not in pilot'} />],
-    ['Last change', (s) => (s.fbbPilot?.changedAt ? `${when(s.fbbPilot.changedAt)} — ${s.fbbPilot.note || ''}` : '—')], ['', toggle]];
+  const toggle = (s) => <Btn primary={!s.fbbPilot?.enabled} disabled={busy || note.trim().length < 5} title={note.trim().length < 5 ? 'Write the reason first' : undefined}
+    onClick={() => change(s, !s.fbbPilot?.enabled)}>{s.fbbPilot?.enabled ? 'Remove from pilot' : 'Add to pilot'}</Btn>;
+  const columns = [['Seller', (s) => <strong>{s.storeName || s.businessName}</strong>], ['Account', (s) => <Badge value={s.status} />], ['In pilot', (s) => <Badge value={s.fbbPilot?.enabled ? 'yes' : 'no'} label={s.fbbPilot?.enabled ? 'In pilot' : 'Not in pilot'} />],
+    ['Last change', (s) => (s.fbbPilot?.changedAt ? <>{when(s.fbbPilot.changedAt)}<div className="fbb-sub">{s.fbbPilot.note || ''}</div></> : '—')], ['', toggle]];
   return (
-    <section style={box}>
-      <h3>Pilot sellers</h3>
-      <p style={{ fontSize: 13 }}>
+    <section>
+      <CardHead title="Pilot sellers">
         {data?.allSellers ? 'FBB is open to every seller, so this list is not needed right now.'
           : 'Only the sellers listed here can choose FBB, send stock and sell FBB items. Removing a seller stops new FBB activity; their placed orders, charges and returns carry on.'}
-      </p>
+      </CardHead>
       <Refused error={error} />
-      <label style={{ display: 'grid', fontSize: 12, gap: 2, maxWidth: 420, marginBottom: 8 }}>Reason for the change (required, kept on the record)
-        <input value={note} onChange={(e) => setNote(e.target.value)} disabled={busy} maxLength={300} /></label>
-      <Table rows={data?.rows || []} columns={columns} empty="No seller is in the FBB pilot." />
-      <div style={{ display: 'flex', gap: 6, marginTop: 10 }}>
-        <input placeholder="Find a seller by name" value={q} onChange={(e) => setQ(e.target.value)} disabled={busy} />
-        <button type="button" style={btn} disabled={busy || q.trim().length < 2} onClick={search}>Search</button>
+      <div className="fbb-form cols-2">
+        <Field label="Reason for the change" hint="Required (at least 5 characters). Kept on the seller’s record.">
+          <input value={note} onChange={(e) => setNote(e.target.value)} disabled={busy} maxLength={300} placeholder="e.g. Agreed FBB pilot on call, 28 Nov" />
+        </Field>
+        <Field label="Add a seller">
+          <div className="fbb-input-group">
+            <input placeholder="Search seller by name" value={q} onChange={(e) => setQ(e.target.value)} disabled={busy} onKeyDown={(e) => e.key === 'Enter' && q.trim().length >= 2 && search()} />
+            <Btn disabled={busy || q.trim().length < 2} onClick={search}>Search</Btn>
+          </div>
+        </Field>
       </div>
-      {found && <Table rows={found} columns={columns} empty="No seller matches." />}
+      {found && <><h4 className="fbb-subhead">Search results</h4><Table rows={found} columns={columns} empty="No seller matches." /></>}
+      <h4 className="fbb-subhead">In the pilot</h4>
+      <Table rows={data?.rows || []} columns={columns} empty="No seller is in the FBB pilot." />
     </section>
   );
 }
 
 /* ------------------------------------------------------------------ receiving ------------------------------------ */
-const blankLine = () => ({ productId: '', variantId: '', expectedQty: '', receivedQty: '', acceptedQty: '', damagedQty: '', rejectedQty: '', note: '' });
-function Receiving() {
+const blankLine = (productId = '') => ({ productId, variantId: '', expectedQty: '', receivedQty: '', acceptedQty: '', damagedQty: '', rejectedQty: '', note: '' });
+const QTY = [['expectedQty', 'Expected', 'As per invoice'], ['receivedQty', 'Received', 'Physically arrived'], ['acceptedQty', 'Accepted', 'Goes on sale'], ['damagedQty', 'Damaged', ''], ['rejectedQty', 'Rejected', '']];
+const n = (v) => (v === '' || v == null ? null : Number(v));
+
+/** Live check of one line: received = accepted + damaged + rejected; missing = expected − received. */
+function LineCheck({ line }) {
+  const [exp, rec, acc, dam, rej] = QTY.map(([k]) => n(line[k]));
+  if (rec == null) return null;
+  const split = (acc || 0) + (dam || 0) + (rej || 0);
+  const missing = exp != null ? exp - rec : null;
+  const ok = split === rec;
+  return (
+    <div className={`fbb-line-check${ok ? ' is-ok' : ' is-off'}`}>
+      {ok ? '✓ Received matches accepted + damaged + rejected' : `Received is ${rec}, but accepted + damaged + rejected is ${split}`}
+      {missing != null && missing > 0 && <span> · {missing} missing</span>}
+      {missing != null && missing < 0 && <span> · {-missing} more than expected</span>}
+    </div>
+  );
+}
+
+function Receiving({ preset, clearPreset }) {
   const warehouses = useLoad('/fbb/warehouses');
   const products = useLoad('/fbb/products');
   const receipts = useLoad('/fbb/receipts?limit=50');
   const { busy, act } = useAct();
   const [draft, setDraft] = useState(null);
+  const activeWarehouses = (warehouses.data || []).filter((w) => w.isActive);
+  const newDraft = useCallback((sellerId = '', productId = '') => setDraft({
+    key: key(), warehouseId: (warehouses.data || []).find((w) => w.isActive)?._id || '', sellerId, reference: '', notes: '', lines: [blankLine(productId)],
+  }), [warehouses.data]);
+  // Opened from Products → "Count delivery": start a receipt for that seller and product.
+  useEffect(() => {
+    if (preset && warehouses.data) { newDraft(preset.sellerId, preset.productId); clearPreset(); }
+  }, [preset, warehouses.data, newDraft, clearPreset]);
   const sellers = useMemo(() => {
     const map = new Map();
     for (const p of products.data || []) map.set(String(p.sellerId?._id || p.sellerId), p.sellerId?.businessName || p.sellerName || String(p.sellerId?._id || p.sellerId));
@@ -202,52 +370,94 @@ function Receiving() {
   const post = (r) => window.confirm(`Post ${r.receiptNo}? Accepted units go on sale${r.storageCharged ? '' : ' and storage is charged'}. A posted receipt cannot be edited.`)
     && act(() => adminPost(`/fbb/receipts/${r._id}/post`), receipts.reload);
   const cancel = (r) => window.confirm(`Cancel draft ${r.receiptNo}?`) && act(() => adminPost(`/fbb/receipts/${r._id}/cancel`), receipts.reload);
+  const linesReady = draft?.lines.every((l) => l.productId && l.variantId && l.receivedQty !== '');
 
   return (
     <>
-      <section style={box}>
-        <h3>Count a delivery</h3>
-        <p style={{ fontSize: 12 }}>Record what arrived: received = accepted + damaged + rejected; anything not received is missing. Save as a draft, check it, then post. Only accepted units go on sale and are charged storage.</p>
+      <section>
+        <CardHead title="Count a delivery" action={!draft && <Btn primary onClick={() => newDraft()}>+ New receipt</Btn>}>
+          When a seller’s stock arrives, record what came in. Save it as a draft, check it, then post it. Only accepted units go on sale and are charged storage.
+        </CardHead>
         <Refused error={warehouses.error || products.error} />
-        {!draft ? <button type="button" style={primary} onClick={() => setDraft({ key: key(), warehouseId: warehouses.data?.find((w) => w.isActive)?._id || '', sellerId: '', reference: '', notes: '', lines: [blankLine()] })}>New receipt</button> : (
-          <div style={{ display: 'grid', gap: 8 }}>
-            <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
-              <label style={{ fontSize: 12 }}>Warehouse <select value={draft.warehouseId} onChange={(e) => setDraft({ ...draft, warehouseId: e.target.value })}>
-                <option value="">Choose…</option>{(warehouses.data || []).filter((w) => w.isActive).map((w) => <option key={w._id} value={w._id}>{w.name}</option>)}</select></label>
-              <label style={{ fontSize: 12 }}>Seller <select value={draft.sellerId} onChange={(e) => setDraft({ ...draft, sellerId: e.target.value, lines: [blankLine()] })}>
-                <option value="">Choose…</option>{sellers.map(([id, name]) => <option key={id} value={id}>{name}</option>)}</select></label>
-              <label style={{ fontSize: 12 }}>Reference (invoice / challan) <input value={draft.reference} onChange={(e) => setDraft({ ...draft, reference: e.target.value })} /></label>
+        {draft && (
+          <div className="fbb-form-panel">
+            <h4>1. Delivery details</h4>
+            <div className="fbb-form">
+              <Field label="Warehouse">
+                <select value={draft.warehouseId} onChange={(e) => setDraft({ ...draft, warehouseId: e.target.value })}>
+                  <option value="">Choose…</option>{activeWarehouses.map((w) => <option key={w._id} value={w._id}>{w.name}</option>)}
+                </select>
+              </Field>
+              <Field label="Seller" hint={!sellers.length ? 'No seller has an FBB product yet' : undefined}>
+                <select value={draft.sellerId} onChange={(e) => setDraft({ ...draft, sellerId: e.target.value, lines: [blankLine()] })}>
+                  <option value="">Choose…</option>{sellers.map(([id, name]) => <option key={id} value={id}>{name}</option>)}
+                </select>
+              </Field>
+              <Field label="Reference" hint="Invoice or challan number">
+                <input value={draft.reference} onChange={(e) => setDraft({ ...draft, reference: e.target.value })} placeholder="INV-1042" />
+              </Field>
             </div>
-            {draft.lines.map((l, i) => {
-              const product = sellerProducts.find((p) => String(p._id) === l.productId);
-              return (
-                <div key={i} style={{ display: 'flex', gap: 6, flexWrap: 'wrap', alignItems: 'end', borderTop: '1px dashed #e2e8f0', paddingTop: 6 }}>
-                  <label style={{ fontSize: 12 }}>Product <select value={l.productId} onChange={(e) => setLine(i, 'productId', e.target.value)}>
-                    <option value="">Choose…</option>{sellerProducts.map((p) => <option key={p._id} value={p._id}>{p.name}</option>)}</select></label>
-                  <label style={{ fontSize: 12 }}>Variant <select value={l.variantId} onChange={(e) => setLine(i, 'variantId', e.target.value)}>
-                    <option value="">Choose…</option>{(product?.variants || []).map((v) => <option key={v._id} value={v._id}>{v.name}</option>)}</select></label>
-                  {[['expectedQty', 'Expected'], ['receivedQty', 'Received'], ['acceptedQty', 'Accepted'], ['damagedQty', 'Damaged'], ['rejectedQty', 'Rejected']].map(([k, label]) => (
-                    <label key={k} style={{ fontSize: 12, display: 'grid' }}>{label}<input type="number" min="0" step="1" style={{ width: 80 }} value={l[k]} onChange={(e) => setLine(i, k, e.target.value)} /></label>
-                  ))}
-                  <label style={{ fontSize: 12, display: 'grid' }}>Note<input value={l.note} onChange={(e) => setLine(i, 'note', e.target.value)} /></label>
-                  {draft.lines.length > 1 && <button type="button" style={btn} onClick={() => setDraft({ ...draft, lines: draft.lines.filter((_, j) => j !== i) })}>Remove</button>}
-                </div>
-              );
-            })}
-            <div><button type="button" style={btn} onClick={() => setDraft({ ...draft, lines: [...draft.lines, blankLine()] })}>Add line</button></div>
-            <label style={{ fontSize: 12, display: 'grid' }}>Notes<textarea value={draft.notes} onChange={(e) => setDraft({ ...draft, notes: e.target.value })} /></label>
-            <div><button type="button" style={primary} disabled={busy || !draft.warehouseId || !draft.sellerId} onClick={save}>Save draft</button><button type="button" style={btn} onClick={() => setDraft(null)}>Discard</button></div>
+
+            <h4>2. Items received</h4>
+            {!draft.sellerId && <p className="fbb-muted">Choose the seller first to see their FBB products.</p>}
+            <div className="fbb-lines">
+              {draft.lines.map((l, i) => {
+                const product = sellerProducts.find((p) => String(p._id) === l.productId);
+                return (
+                  <div key={i} className="fbb-line">
+                    <div className="fbb-line-head">
+                      <span className="fbb-line-num">Item {i + 1}</span>
+                      {draft.lines.length > 1 && <Btn ghost onClick={() => setDraft({ ...draft, lines: draft.lines.filter((_, j) => j !== i) })}>Remove</Btn>}
+                    </div>
+                    <div className="fbb-form cols-2">
+                      <Field label="Product">
+                        <select value={l.productId} disabled={!draft.sellerId} onChange={(e) => setLine(i, 'productId', e.target.value)}>
+                          <option value="">Choose…</option>{sellerProducts.map((p) => <option key={p._id} value={p._id}>{p.name}</option>)}
+                        </select>
+                      </Field>
+                      <Field label="Variant">
+                        <select value={l.variantId} disabled={!product} onChange={(e) => setLine(i, 'variantId', e.target.value)}>
+                          <option value="">Choose…</option>{(product?.variants || []).map((v) => <option key={v._id} value={v._id}>{v.name}</option>)}
+                        </select>
+                      </Field>
+                    </div>
+                    <div className="fbb-qty-grid">
+                      {QTY.map(([k, label, hint]) => (
+                        <Field key={k} label={label} hint={hint}><input type="number" min="0" step="1" inputMode="numeric" value={l[k]} onChange={(e) => setLine(i, k, e.target.value)} /></Field>
+                      ))}
+                    </div>
+                    <LineCheck line={l} />
+                    <Field label="Note for this item (optional)"><input value={l.note} onChange={(e) => setLine(i, 'note', e.target.value)} placeholder="e.g. 2 boxes crushed" /></Field>
+                  </div>
+                );
+              })}
+            </div>
+            <Btn ghost className="fbb-add-line" disabled={!draft.sellerId} onClick={() => setDraft({ ...draft, lines: [...draft.lines, blankLine()] })}>+ Add another item</Btn>
+
+            <h4>3. Notes</h4>
+            <Field label="Notes for the whole delivery (optional)"><textarea value={draft.notes} onChange={(e) => setDraft({ ...draft, notes: e.target.value })} /></Field>
+            <div className="fbb-actions">
+              <Btn primary disabled={busy || !draft.warehouseId || !draft.sellerId || !linesReady} onClick={save}>Save draft</Btn>
+              <Btn onClick={() => setDraft(null)}>Discard</Btn>
+              {!linesReady && draft.sellerId && <span className="fbb-muted">Fill product, variant and received for every item.</span>}
+            </div>
           </div>
         )}
       </section>
-      <section style={box}>
-        <h3>Receipts</h3>
+      <section>
+        <CardHead title="Receipts">Drafts need “Verify & post” before the stock goes on sale.</CardHead>
         <Refused error={receipts.error} />
         <Table rows={receipts.data?.rows || []} columns={[
-          ['Receipt', (r) => r.receiptNo], ['Seller', (r) => r.sellerId?.businessName || String(r.sellerId?._id || r.sellerId)], ['Status', (r) => <Badge value={r.status} />],
-          ['Lines (expected / received / accepted / damaged / rejected / missing)', (r) => r.lines.map((l) => <div key={l._id}>{l.productName}{l.variantName ? ` (${l.variantName})` : ''}: {l.expectedQty}/{l.receivedQty}/{l.acceptedQty}/{l.damagedQty}/{l.rejectedQty}/{l.missingQty}</div>)],
+          ['Receipt', (r) => <><strong>{r.receiptNo}</strong><div className="fbb-sub">{r.reference || ''}</div></>],
+          ['Seller', (r) => sellerName(r.sellerId)], ['Status', (r) => <Badge value={r.status} />],
+          ['Items', (r) => r.lines.map((l) => (
+            <div key={l._id} className="fbb-receipt-line">
+              <span>{l.productName}{l.variantName ? ` (${l.variantName})` : ''}</span>
+              <span className="fbb-sub">exp {l.expectedQty ?? '—'} · rec {l.receivedQty} · <b>acc {l.acceptedQty}</b> · dmg {l.damagedQty} · rej {l.rejectedQty}{l.missingQty ? ` · missing ${l.missingQty}` : ''}</span>
+            </div>
+          ))],
           ['Posted', (r) => when(r.postedAt)],
-          ['', (r) => r.status === 'draft' && <><button type="button" style={primary} disabled={busy} onClick={() => post(r)}>Verify & post</button><button type="button" style={btn} disabled={busy} onClick={() => cancel(r)}>Cancel</button></>],
+          ['', (r) => r.status === 'draft' && <div className="fbb-row-actions"><Btn primary disabled={busy} onClick={() => post(r)}>Verify & post</Btn><Btn disabled={busy} onClick={() => cancel(r)}>Cancel</Btn></div>],
         ]} empty="No receipts yet." />
       </section>
     </>
@@ -263,30 +473,33 @@ function Stock() {
   const mismatches = (Array.isArray(recon.data) ? recon.data : recon.data?.rows || []).filter((r) => !r.matches);
   return (
     <>
-      <section style={box}>
-        <h3>Warehouse stock</h3>
+      <section>
+        <CardHead title="Warehouse stock">
+          Parcels the courier brings back (RTO) wait under “To inspect” until inspected in Orders → Returned — to inspect.
+        </CardHead>
         <Refused error={stock.error} />
         <Table rows={stock.data?.rows || []} columns={[
-          ['Product', (r) => r.productId?.name], ['Variant', (r) => r.variantName || '—'], ['Seller', (r) => r.sellerId?.businessName || '—'], ['Warehouse', (r) => r.warehouseId?.name || '—'],
-          ['For sale', (r) => r.sellable], ['Reserved', (r) => r.reserved], ['Awaiting inspection', (r) => r.quarantine || 0], ['Damaged', (r) => r.damaged],
-        ]} empty="No stock yet." />
-        <p style={{ fontSize: 12 }}>Parcels the courier brings back (RTO) wait under "Awaiting inspection" until inspected in Orders → Returned — to inspect.</p>
+          ['Product', (r) => <><strong>{r.productId?.name}</strong><div className="fbb-sub">{r.variantName || ''}</div></>], ['Seller', (r) => sellerName(r.sellerId)], ['Warehouse', (r) => r.warehouseId?.name || '—'],
+          ['For sale', (r) => <strong>{r.sellable}</strong>], ['Reserved', (r) => r.reserved], ['To inspect', (r) => r.quarantine || 0], ['Damaged', (r) => r.damaged],
+        ]} empty="No stock yet. Post a receipt under Receiving to add stock." />
       </section>
-      <section style={box}>
-        <h3>Listing vs warehouse check</h3>
-        <p style={{ fontSize: 12 }}>The listing's stock must equal the warehouse's for-sale units. A mismatch can be re-derived from the warehouse (the warehouse is the source of truth).</p>
+      <section>
+        <CardHead title="Listing vs warehouse check">
+          The listing’s stock must equal the warehouse’s for-sale units. A mismatch can be re-derived from the warehouse (the warehouse is the source of truth).
+        </CardHead>
         <Refused error={recon.error} />
         <Table rows={mismatches} columns={[
           ['Product', (r) => r.productName], ['Variant', (r) => r.variantName], ['Listing shows', (r) => r.mirrorStock], ['Warehouse for sale', (r) => r.warehouseSellable],
-          ['', (r) => <button type="button" style={btn} disabled={busy} onClick={() => act(() => adminPost(`/fbb/reconciliation/${r.productId}/resync`), recon.reload)}>Re-derive</button>],
-        ]} empty="Everything matches." />
+          ['', (r) => <Btn disabled={busy} onClick={() => act(() => adminPost(`/fbb/reconciliation/${r.productId}/resync`), recon.reload)}>Re-derive</Btn>],
+        ]} empty="✓ Everything matches." />
       </section>
-      <section style={box}>
-        <h3>Recent movements</h3>
+      <section>
+        <CardHead title="Recent movements" />
         <Refused error={movements.error} />
         <Table rows={movements.data?.rows || []} columns={[
-          ['When', (m) => when(m.createdAt)], ['Product', (m) => m.productId?.name || String(m.productId)], ['Reason', (m) => m.reason], ['Bucket', (m) => m.bucket || '—'],
-          ['Change', (m) => m.quantityDelta ?? m.delta ?? m.qty], ['Reference', (m) => [m.referenceType, m.referenceId].filter(Boolean).join(' ') || '—'],
+          ['When', (m) => when(m.createdAt)], ['Product', (m) => m.productId?.name || String(m.productId)], ['Reason', (m) => String(m.reason || '').replace(/_/g, ' ')], ['Bucket', (m) => m.bucket || '—'],
+          ['Change', (m) => { const d = m.quantityDelta ?? m.delta ?? m.qty; return <span className={Number(d) < 0 ? 'fbb-neg' : 'fbb-pos'}>{Number(d) > 0 ? `+${d}` : d}</span>; }],
+          ['Reference', (m) => [m.referenceType, m.referenceId].filter(Boolean).join(' ') || '—'],
         ]} empty="No movements yet." />
       </section>
     </>
@@ -312,26 +525,31 @@ function Adjustments() {
   };
   return (
     <>
-      <section style={box}>
-        <h3>Request an adjustment</h3>
-        <p style={{ fontSize: 12 }}>For counted differences only. Every adjustment needs a reason and approval by a different admin; nothing changes until it is approved.</p>
+      <section>
+        <CardHead title="Request an adjustment">
+          For counted differences only. Every adjustment needs a reason and approval by a different admin; nothing changes until it is approved.
+        </CardHead>
         <Refused error={stock.error} />
-        <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'end' }}>
-          <label style={{ fontSize: 12 }}>Stock line <select value={form.row} onChange={(e) => setForm({ ...form, row: e.target.value })}>
-            <option value="">Choose…</option>{rows.map((r) => <option key={r._id} value={r._id}>{r.productId?.name} {r.variantName ? `(${r.variantName})` : ''} — {r.warehouseId?.name}: {r.sellable} for sale, {r.damaged} damaged</option>)}</select></label>
-          <label style={{ fontSize: 12 }}>Bucket <select value={form.bucket} onChange={(e) => setForm({ ...form, bucket: e.target.value })}><option value="sellable">For sale</option><option value="damaged">Damaged</option></select></label>
-          <label style={{ fontSize: 12 }}>Change (+/−) <input type="number" step="1" style={{ width: 80 }} value={form.delta} onChange={(e) => setForm({ ...form, delta: e.target.value })} /></label>
-          <label style={{ fontSize: 12, flex: 1 }}>Reason <input style={{ width: '100%' }} value={form.reason} onChange={(e) => setForm({ ...form, reason: e.target.value })} /></label>
-          <button type="button" style={primary} disabled={busy || !chosen || !Number(form.delta) || form.reason.trim().length < 5} onClick={request}>Request</button>
+        <div className="fbb-form">
+          <Field label="Stock line" span={3}>
+            <select value={form.row} onChange={(e) => setForm({ ...form, row: e.target.value })}>
+              <option value="">Choose…</option>{rows.map((r) => <option key={r._id} value={r._id}>{r.productId?.name} {r.variantName ? `(${r.variantName})` : ''} — {r.warehouseId?.name}: {r.sellable} for sale, {r.damaged} damaged</option>)}
+            </select>
+          </Field>
+          <Field label="Bucket"><select value={form.bucket} onChange={(e) => setForm({ ...form, bucket: e.target.value })}><option value="sellable">For sale</option><option value="damaged">Damaged</option></select></Field>
+          <Field label="Change" hint="Use − to remove, e.g. -2"><input type="number" step="1" value={form.delta} onChange={(e) => setForm({ ...form, delta: e.target.value })} /></Field>
+          <Field label="Reason" hint="At least 5 characters"><input value={form.reason} onChange={(e) => setForm({ ...form, reason: e.target.value })} placeholder="e.g. Cycle count 28 Nov" /></Field>
         </div>
+        <div className="fbb-actions"><Btn primary disabled={busy || !chosen || !Number(form.delta) || form.reason.trim().length < 5} onClick={request}>Request adjustment</Btn></div>
       </section>
-      <section style={box}>
-        <h3>Adjustments</h3>
+      <section>
+        <CardHead title="Adjustments" />
         <Refused error={list.error} />
         <Table rows={list.data || []} columns={[
-          ['When', (a) => when(a.createdAt)], ['Product', (a) => a.productId?.name], ['Seller', (a) => a.sellerId?.businessName], ['Bucket', (a) => a.bucket], ['Change', (a) => a.delta],
+          ['When', (a) => when(a.createdAt)], ['Product', (a) => a.productId?.name], ['Seller', (a) => sellerName(a.sellerId)], ['Bucket', (a) => a.bucket],
+          ['Change', (a) => <span className={a.delta < 0 ? 'fbb-neg' : 'fbb-pos'}>{a.delta > 0 ? `+${a.delta}` : a.delta}</span>],
           ['Reason', (a) => a.reason], ['Status', (a) => <Badge value={a.status} />],
-          ['', (a) => a.status === 'pending' && <><button type="button" style={primary} disabled={busy} onClick={() => decide(a, true)}>Approve</button><button type="button" style={btn} disabled={busy} onClick={() => decide(a, false)}>Reject</button></>],
+          ['', (a) => a.status === 'pending' && <div className="fbb-row-actions"><Btn primary disabled={busy} onClick={() => decide(a, true)}>Approve</Btn><Btn disabled={busy} onClick={() => decide(a, false)}>Reject</Btn></div>],
         ]} empty="No adjustments." />
       </section>
     </>
@@ -347,25 +565,31 @@ function DeliveryChoice({ order, onDone }) {
   const [pkg, setPkg] = useState({ length: '', breadth: '', height: '' });
   useEffect(() => { const s = data?.shiprocket?.suggestedPackage; if (s) setPkg({ length: String(s.length), breadth: String(s.breadth), height: String(s.height) }); }, [data]);
   if (error) return <Refused error={error} />;
-  if (!data) return <p style={{ fontSize: 12 }}>Checking delivery options…</p>;
+  if (!data) return <p className="fbb-muted">Checking delivery options…</p>;
   const riders = (data.manual?.riders || []).filter((r) => r.online);
   return (
-    <div style={{ display: 'grid', gap: 8, fontSize: 12, padding: 8, background: '#f8fafc', borderRadius: 8 }}>
-      <div>Pickup from: <strong>{[data.pickup?.name, data.pickup?.address, data.pickup?.city, data.pickup?.pincode].filter(Boolean).join(', ')}</strong></div>
-      <div>
-        <strong>Bulkimart rider</strong> {!data.manual?.available && <em>— {data.manual?.reason}</em>}
-        {riders.length > 0 && <select value={rider} onChange={(e) => setRider(e.target.value)} style={{ marginLeft: 6 }}><option value="">Any eligible rider (broadcast)</option>{riders.map((r) => <option key={r.id} value={r.id}>{r.name}</option>)}</select>}
-        <button type="button" style={{ ...primary, marginLeft: 6 }} disabled={busy || !data.manual?.available}
-          onClick={() => window.confirm('Send this order to a Bulkimart rider from the warehouse?') && act(() => adminPost(`/fbb/orders/${order._id}/fulfillment/manual`, rider ? { riderId: rider } : {}), onDone)}>Use rider</button>
-      </div>
-      <div>
-        <strong>Shiprocket</strong> {data.shiprocket?.quote ? `— estimated freight ${money(data.shiprocket.quote.courierCharge)}` : data.shiprocket?.reason ? `— ${data.shiprocket.reason}` : ''}
-        <div style={{ display: 'flex', gap: 6, marginTop: 4 }}>
-          {['length', 'breadth', 'height'].map((k) => <label key={k}>{k} (cm) <input type="number" min="1" style={{ width: 60 }} value={pkg[k]} onChange={(e) => setPkg({ ...pkg, [k]: e.target.value })} /></label>)}
-          <button type="button" style={primary} disabled={busy || !data.shiprocket?.available || !data.shiprocket?.quote || !pkg.length || !pkg.breadth || !pkg.height}
-            onClick={() => window.confirm(`Book Shiprocket from the warehouse (estimated freight ${money(data.shiprocket.quote.courierCharge)})?`)
-              && act(() => adminPost(`/fbb/orders/${order._id}/fulfillment/shiprocket`, { confirm: true, package: { length: Number(pkg.length), breadth: Number(pkg.breadth), height: Number(pkg.height) }, quotedCourierCharge: data.shiprocket.quote.courierCharge }), onDone)}>Book Shiprocket</button>
-          <button type="button" style={btn} onClick={reload}>Refresh</button>
+    <div className="fbb-panel">
+      <div className="fbb-panel-row">Pickup from: <strong>{[data.pickup?.name, data.pickup?.address, data.pickup?.city, data.pickup?.pincode].filter(Boolean).join(', ')}</strong></div>
+      <div className="fbb-choice-grid">
+        <div className="fbb-choice">
+          <strong>🛵 Bulkimart rider</strong>
+          {!data.manual?.available && <p className="fbb-muted">{data.manual?.reason}</p>}
+          {riders.length > 0 && <select value={rider} onChange={(e) => setRider(e.target.value)}><option value="">Any eligible rider (broadcast)</option>{riders.map((r) => <option key={r.id} value={r.id}>{r.name}</option>)}</select>}
+          <Btn primary disabled={busy || !data.manual?.available}
+            onClick={() => window.confirm('Send this order to a Bulkimart rider from the warehouse?') && act(() => adminPost(`/fbb/orders/${order._id}/fulfillment/manual`, rider ? { riderId: rider } : {}), onDone)}>Use rider</Btn>
+        </div>
+        <div className="fbb-choice">
+          <strong>🚚 Shiprocket</strong>
+          <p className="fbb-muted">{data.shiprocket?.quote ? `Estimated freight ${money(data.shiprocket.quote.courierCharge)}` : data.shiprocket?.reason || ''}</p>
+          <div className="fbb-qty-grid cols-3">
+            {['length', 'breadth', 'height'].map((k) => <Field key={k} label={`${k[0].toUpperCase()}${k.slice(1)} (cm)`}><input type="number" min="1" value={pkg[k]} onChange={(e) => setPkg({ ...pkg, [k]: e.target.value })} /></Field>)}
+          </div>
+          <div className="fbb-row-actions">
+            <Btn primary disabled={busy || !data.shiprocket?.available || !data.shiprocket?.quote || !pkg.length || !pkg.breadth || !pkg.height}
+              onClick={() => window.confirm(`Book Shiprocket from the warehouse (estimated freight ${money(data.shiprocket.quote.courierCharge)})?`)
+                && act(() => adminPost(`/fbb/orders/${order._id}/fulfillment/shiprocket`, { confirm: true, package: { length: Number(pkg.length), breadth: Number(pkg.breadth), height: Number(pkg.height) }, quotedCourierCharge: data.shiprocket.quote.courierCharge }), onDone)}>Book Shiprocket</Btn>
+            <Btn onClick={reload}>Refresh</Btn>
+          </div>
         </div>
       </div>
     </div>
@@ -382,22 +606,22 @@ function Inspect({ order, onDone }) {
     const item = order.items.find((i) => String(i.productId) === String(l.productId) && String(i.variantId) === String(l.variantId));
     return item ? `${item.name}${item.variantName ? ` (${item.variantName})` : ''}` : 'Item';
   };
-  const parsed = lines.map((l, n) => (sellable[n] === '' ? null : Number(sellable[n])));
-  const valid = parsed.every((v, n) => Number.isInteger(v) && v >= 0 && v <= lines[n].qty);
+  const parsed = lines.map((l, i) => (sellable[i] === '' ? null : Number(sellable[i])));
+  const valid = parsed.every((v, i) => Number.isInteger(v) && v >= 0 && v <= lines[i].qty);
   const submit = () => window.confirm('Record this inspection? Units marked sellable go back on sale; the rest go to the damaged bucket. This cannot be repeated.')
-    && act(() => adminPost(`/fbb/orders/${order._id}/inspect`, { note, lines: lines.map((l, n) => ({ productId: l.productId, variantId: l.variantId, sellableQty: parsed[n], damagedQty: l.qty - parsed[n] })) }), onDone);
+    && act(() => adminPost(`/fbb/orders/${order._id}/inspect`, { note, lines: lines.map((l, i) => ({ productId: l.productId, variantId: l.variantId, sellableQty: parsed[i], damagedQty: l.qty - parsed[i] })) }), onDone);
   return (
-    <div style={{ marginTop: 6, padding: 8, border: '1px solid #e5e7eb', borderRadius: 6 }}>
-      {lines.map((l, n) => (
-        <label key={n} style={{ display: 'block', fontSize: 12, marginBottom: 4 }}>
-          {name(l)} — {l.qty} back. Resellable:{' '}
-          <input type="number" min="0" max={l.qty} value={sellable[n]} style={{ width: 60 }}
-            onChange={(e) => setSellable(sellable.map((v, i) => (i === n ? e.target.value : v)))} />
-          {Number.isInteger(parsed[n]) && parsed[n] <= l.qty ? ` · damaged ${l.qty - parsed[n]}` : ''}
-        </label>
-      ))}
-      <label style={{ display: 'block', fontSize: 12 }}>Note <input value={note} maxLength={300} onChange={(e) => setNote(e.target.value)} /></label>
-      <button type="button" style={primary} disabled={busy || !valid} onClick={submit}>Record inspection</button>
+    <div className="fbb-panel">
+      <h4>Inspect returned parcel</h4>
+      <div className="fbb-form">
+        {lines.map((l, i) => (
+          <Field key={i} label={`${name(l)} — ${l.qty} back`} hint={Number.isInteger(parsed[i]) && parsed[i] <= l.qty ? `${l.qty - parsed[i]} go to damaged` : 'How many can be sold again?'}>
+            <input type="number" min="0" max={l.qty} value={sellable[i]} placeholder="Resellable" onChange={(e) => setSellable(sellable.map((v, j) => (j === i ? e.target.value : v)))} />
+          </Field>
+        ))}
+        <Field label="Note (optional)"><input value={note} maxLength={300} onChange={(e) => setNote(e.target.value)} /></Field>
+      </div>
+      <div className="fbb-actions"><Btn primary disabled={busy || !valid} onClick={submit}>Record inspection</Btn></div>
     </div>
   );
 }
@@ -412,32 +636,34 @@ function Orders() {
   const actions = (o) => {
     const s = o.fbb?.status;
     return (
-      <>
-        {s === 'awaiting_acceptance' && <button type="button" style={primary} disabled={busy} onClick={() => step(o, 'accept')}>Accept</button>}
-        {s === 'accepted' && <button type="button" style={primary} disabled={busy} onClick={() => step(o, 'pick')}>Start picking</button>}
-        {s === 'picking' && <button type="button" style={primary} disabled={busy} onClick={() => step(o, 'pack', 'Mark packed? The packaging charge is booked now.')}>Mark packed</button>}
-        {s === 'packed' && o.status === 'preparing' && !o.deliveryPartnerId && !o.shiprocket?.awb && <button type="button" style={primary} onClick={() => setChoosing(choosing === o._id ? null : o._id)}>Choose delivery</button>}
-        {s === 'packed' && o.shiprocket?.awb && <button type="button" style={primary} disabled={busy} onClick={() => step(o, 'handoff', 'Confirm the courier collected the parcel? Stock leaves the warehouse and the fulfilment charge is booked.')}>Confirm courier pickup</button>}
-        {s !== 'handed_over' && ['placed', 'confirmed', 'preparing'].includes(o.status) && <button type="button" style={btn} disabled={busy} onClick={() => cancel(o)}>Cancel</button>}
-        {o.fbb?.returnInspection?.status === 'pending' && <button type="button" style={primary} onClick={() => setChoosing(choosing === o._id ? null : o._id)}>Inspect returned parcel</button>}
-      </>
+      <div className="fbb-row-actions">
+        {s === 'awaiting_acceptance' && <Btn primary disabled={busy} onClick={() => step(o, 'accept')}>Accept</Btn>}
+        {s === 'accepted' && <Btn primary disabled={busy} onClick={() => step(o, 'pick')}>Start picking</Btn>}
+        {s === 'picking' && <Btn primary disabled={busy} onClick={() => step(o, 'pack', 'Mark packed? The packaging charge is booked now.')}>Mark packed</Btn>}
+        {s === 'packed' && o.status === 'preparing' && !o.deliveryPartnerId && !o.shiprocket?.awb && <Btn primary onClick={() => setChoosing(choosing === o._id ? null : o._id)}>{choosing === o._id ? 'Close' : 'Choose delivery'}</Btn>}
+        {s === 'packed' && o.shiprocket?.awb && <Btn primary disabled={busy} onClick={() => step(o, 'handoff', 'Confirm the courier collected the parcel? Stock leaves the warehouse and the fulfilment charge is booked.')}>Confirm courier pickup</Btn>}
+        {o.fbb?.returnInspection?.status === 'pending' && <Btn primary onClick={() => setChoosing(choosing === o._id ? null : o._id)}>{choosing === o._id ? 'Close' : 'Inspect returned parcel'}</Btn>}
+        {s !== 'handed_over' && ['placed', 'confirmed', 'preparing'].includes(o.status) && <Btn disabled={busy} onClick={() => cancel(o)}>Cancel</Btn>}
+      </div>
     );
   };
+  const done = async () => { setChoosing(null); await reload(); };
   return (
-    <section style={box}>
-      <h3>FBB orders</h3>
-      <div style={{ marginBottom: 8 }}>{[['open', 'To fulfil'], ['in_transit', 'In transit'], ['inspection', 'Returned — to inspect'], ['done', 'Finished']].map(([v, l]) => <button key={v} type="button" style={stage === v ? primary : btn} onClick={() => setStage(v)}>{l}</button>)}</div>
+    <section>
+      <CardHead title="FBB orders">Accept → Start picking → Mark packed → Choose delivery (rider or Shiprocket).</CardHead>
+      <Segmented value={stage} onChange={setStage} options={[['open', 'To fulfil'], ['in_transit', 'In transit'], ['inspection', 'Returned — to inspect'], ['done', 'Finished']]} />
       <Refused error={error} />
-      <Table rows={data?.rows || []} columns={[
-        ['Order', (o) => o.orderNo], ['Placed', (o) => when(o.createdAt)], ['Seller', (o) => o.items?.[0]?.sellerId?.businessName || '—'],
-        ['Items', (o) => o.items.map((i, n) => <div key={n}>{i.qty} × {i.name}{i.variantName ? ` (${i.variantName})` : ''}</div>)],
-        ['Deliver to', (o) => `${o.shippingAddress?.city || ''} ${o.shippingAddress?.pincode || ''}`], ['Payment', (o) => o.paymentMethod],
-        ['Status', (o) => <><Badge value={o.status} /> <Badge value={o.fbb?.status} label={FBB_STAGE[o.fbb?.status] || o.fbb?.status || '—'} /></>],
-        ['Delivery', (o) => o.shiprocket?.awb ? `Shiprocket ${o.shiprocket.awb}` : o.deliveryPartnerId ? 'Bulkimart rider' : o.needsManualAssignment ? 'Waiting for a rider' : '—'],
-        ['', (o) => <>{actions(o)}{choosing === o._id && (o.fbb?.returnInspection?.status === 'pending'
-          ? <Inspect order={o} onDone={async () => { setChoosing(null); await reload(); }} />
-          : <DeliveryChoice order={o} onDone={async () => { setChoosing(null); await reload(); }} />)}</>],
-      ]} empty="No orders in this stage." />
+      <Table rows={data?.rows || []}
+        expand={(o) => choosing === o._id && (o.fbb?.returnInspection?.status === 'pending' ? <Inspect order={o} onDone={done} /> : <DeliveryChoice order={o} onDone={done} />)}
+        columns={[
+          ['Order', (o) => <><strong>{o.orderNo}</strong><div className="fbb-sub">{when(o.createdAt)}</div></>],
+          ['Seller', (o) => sellerName(o.items?.[0]?.sellerId)],
+          ['Items', (o) => o.items.map((i, k) => <div key={k}>{i.qty} × {i.name}{i.variantName ? ` (${i.variantName})` : ''}</div>)],
+          ['Deliver to', (o) => `${o.shippingAddress?.city || ''} ${o.shippingAddress?.pincode || ''}`], ['Payment', (o) => <span className="fbb-upper">{o.paymentMethod}</span>],
+          ['Status', (o) => <div className="fbb-sub-stack"><Badge value={o.status} /><Badge value={o.fbb?.status} label={FBB_STAGE[o.fbb?.status] || o.fbb?.status || '—'} /></div>],
+          ['Delivery', (o) => (o.shiprocket?.awb ? `Shiprocket ${o.shiprocket.awb}` : o.deliveryPartnerId ? 'Bulkimart rider' : o.needsManualAssignment ? 'Waiting for a rider' : '—')],
+          ['', actions],
+        ]} empty="No orders in this stage." />
     </section>
   );
 }
@@ -448,14 +674,16 @@ function ReturnPickup({ ret, onDone }) {
   const { busy, act } = useAct();
   const [rider, setRider] = useState('');
   if (error) return <Refused error={error} />;
-  if (!data) return <p style={{ fontSize: 12 }}>Checking pickup options…</p>;
+  if (!data) return <p className="fbb-muted">Checking pickup options…</p>;
   return (
-    <div style={{ fontSize: 12, padding: 8, background: '#f8fafc', borderRadius: 8 }}>
-      <div>Back to: <strong>{[data.drop?.name, data.drop?.city, data.drop?.pincode].filter(Boolean).join(', ')}</strong></div>
-      <div>{data.manual?.riders?.length > 0 && <select value={rider} onChange={(e) => setRider(e.target.value)}><option value="">Choose rider…</option>{data.manual.riders.map((r) => <option key={r.id} value={r.id}>{r.name}</option>)}</select>}
-        <button type="button" style={primary} disabled={busy || !rider} onClick={() => act(() => adminPost(`/fbb/returns/${ret._id}/pickup`, { pickupMethod: 'MANUAL', riderId: rider }), onDone)}>Send rider</button>
-        <button type="button" style={btn} disabled={busy || !data.shiprocket?.available} onClick={() => window.confirm('Book a Shiprocket reverse pickup to the warehouse?') && act(() => adminPost(`/fbb/returns/${ret._id}/pickup`, { pickupMethod: 'SHIPROCKET' }), onDone)}>Book Shiprocket</button>
-        {data.manual?.reason && <em> {data.manual.reason}</em>}</div>
+    <div className="fbb-panel">
+      <div className="fbb-panel-row">Back to: <strong>{[data.drop?.name, data.drop?.city, data.drop?.pincode].filter(Boolean).join(', ')}</strong></div>
+      <div className="fbb-row-actions">
+        {data.manual?.riders?.length > 0 && <select value={rider} onChange={(e) => setRider(e.target.value)}><option value="">Choose rider…</option>{data.manual.riders.map((r) => <option key={r.id} value={r.id}>{r.name}</option>)}</select>}
+        <Btn primary disabled={busy || !rider} onClick={() => act(() => adminPost(`/fbb/returns/${ret._id}/pickup`, { pickupMethod: 'MANUAL', riderId: rider }), onDone)}>Send rider</Btn>
+        <Btn disabled={busy || !data.shiprocket?.available} onClick={() => window.confirm('Book a Shiprocket reverse pickup to the warehouse?') && act(() => adminPost(`/fbb/returns/${ret._id}/pickup`, { pickupMethod: 'SHIPROCKET' }), onDone)}>Book Shiprocket</Btn>
+        {data.manual?.reason && <em className="fbb-muted">{data.manual.reason}</em>}
+      </div>
     </div>
   );
 }
@@ -469,20 +697,22 @@ function Returns() {
     act(() => adminPost(`/fbb/returns/${r._id}/decision`, approve ? { decision: 'APPROVED' } : { decision: 'REJECTED', rejectionReason: reason }), reload);
   };
   return (
-    <section style={box}>
-      <h3>FBB returns</h3>
-      <p style={{ fontSize: 12 }}>Bulkimart decides FBB returns and brings them back to the warehouse. After it arrives, inspect it and restock or refund on the Returns & Refunds screen: resellable units go back on sale, others to the damaged bucket.</p>
+    <section>
+      <CardHead title="FBB returns">
+        Bulkimart decides FBB returns and brings them back to the warehouse. After it arrives, inspect it and restock or refund on the Returns & Refunds screen: resellable units go back on sale, others to the damaged bucket.
+      </CardHead>
       <Refused error={error} />
-      <Table rows={data || []} columns={[
-        ['Return', (r) => r.returnNo || String(r._id).slice(-6)], ['Requested', (r) => when(r.requestedAt)], ['Reason', (r) => r.reason], ['Status', (r) => <Badge value={r.status} />], ['Pickup', (r) => r.pickup?.status || '—'],
-        ['', (r) => <>
-          {['RETURN_REQUESTED', 'UNDER_REVIEW'].includes(r.status) && <><button type="button" style={primary} disabled={busy} onClick={() => decide(r, true)}>Approve</button><button type="button" style={btn} disabled={busy} onClick={() => decide(r, false)}>Reject</button></>}
-          {r.status === 'APPROVED' && <button type="button" style={primary} onClick={() => setPicking(picking === r._id ? null : r._id)}>Arrange pickup</button>}
-          {r.status === 'AWAITING_RETURN' && <><button type="button" style={btn} disabled={busy} onClick={() => act(() => adminPost(`/fbb/returns/${r._id}/pickup/refresh`), reload)}>Refresh courier</button>
-            <button type="button" style={primary} disabled={busy} onClick={() => window.confirm('Confirm the parcel reached the warehouse?') && act(() => adminPost(`/fbb/returns/${r._id}/mark-received`), reload)}>Received at warehouse</button></>}
-          {picking === r._id && <ReturnPickup ret={r} onDone={async () => { setPicking(null); await reload(); }} />}
-        </>],
-      ]} empty="No FBB returns need attention." />
+      <Table rows={data || []}
+        expand={(r) => picking === r._id && <ReturnPickup ret={r} onDone={async () => { setPicking(null); await reload(); }} />}
+        columns={[
+          ['Return', (r) => <strong>{r.returnNo || String(r._id).slice(-6)}</strong>], ['Requested', (r) => when(r.requestedAt)], ['Reason', (r) => r.reason], ['Status', (r) => <Badge value={r.status} />], ['Pickup', (r) => r.pickup?.status || '—'],
+          ['', (r) => <div className="fbb-row-actions">
+            {['RETURN_REQUESTED', 'UNDER_REVIEW'].includes(r.status) && <><Btn primary disabled={busy} onClick={() => decide(r, true)}>Approve</Btn><Btn disabled={busy} onClick={() => decide(r, false)}>Reject</Btn></>}
+            {r.status === 'APPROVED' && <Btn primary onClick={() => setPicking(picking === r._id ? null : r._id)}>{picking === r._id ? 'Close' : 'Arrange pickup'}</Btn>}
+            {r.status === 'AWAITING_RETURN' && <><Btn disabled={busy} onClick={() => act(() => adminPost(`/fbb/returns/${r._id}/pickup/refresh`), reload)}>Refresh courier</Btn>
+              <Btn primary disabled={busy} onClick={() => window.confirm('Confirm the parcel reached the warehouse?') && act(() => adminPost(`/fbb/returns/${r._id}/mark-received`), reload)}>Received at warehouse</Btn></>}
+          </div>],
+        ]} empty="No FBB returns need attention." />
     </section>
   );
 }
@@ -504,63 +734,91 @@ function Charges() {
   const reverse = (c) => { const reason = window.prompt(`Reverse this ${TYPE[c.type] || c.type} charge of ${money(c.amount)}? Give the reason.`); if (reason) act(() => adminPost(`/fbb/finance/charges/${encodeURIComponent(c._id)}/reverse`, { reason }), async () => { await charges.reload(); await billing.reload(); }); };
   const settle = (s) => window.confirm(`Deduct ${s.sellerName || 'this seller'}'s outstanding FBB charges from eligible earnings now? Only what is eligible is deducted.`)
     && act(() => adminPost(`/fbb/finance/billing/${s.sellerId}/settle`), billing.reload);
+  const amount = (k) => <input type="number" min="0" step="0.01" inputMode="decimal" placeholder="0.00" value={form[k]} onChange={(e) => setForm({ ...form, [k]: e.target.value })} />;
+  const basis = (k) => <select value={form[k]} onChange={(e) => setForm({ ...form, [k]: e.target.value })}><option value="per_order">per order</option><option value="per_unit">per unit</option></select>;
+  const latest = (configs.data || [])[0];
   return (
     <>
-      <section style={box}>
-        <h3>Rates</h3>
-        <p style={{ fontSize: 12 }}>Each change is a new version; earlier versions never change. Orders keep the rates in force when they were placed. Tax treatment is pending accountant review.</p>
+      <section>
+        <CardHead title="Rates" action={!form && <Btn primary onClick={() => setForm({
+          storage: latest ? String(latest.storage.amount) : '', packaging: latest ? String(latest.packaging.amount) : '', packagingBasis: latest?.packaging.basis || 'per_order',
+          fulfillment: latest ? String(latest.fulfillment.amount) : '', fulfillmentBasis: latest?.fulfillment.basis || 'per_unit', effectiveFrom: '', reason: '' })}>+ New rate version</Btn>}>
+          Each change is a new version; earlier versions never change. Orders keep the rates in force when they were placed. Tax treatment is pending accountant review.
+        </CardHead>
         <Refused error={configs.error} />
         <Table rows={configs.data || []} columns={[
-          ['Version', (c) => c.version], ['From', (c) => when(c.effectiveFrom)], ['Storage', (c) => `${money(c.storage.amount)} ${BASIS[c.storage.basis]}`],
+          ['Version', (c) => <strong>v{c.version}</strong>], ['From', (c) => when(c.effectiveFrom)], ['Storage', (c) => `${money(c.storage.amount)} ${BASIS[c.storage.basis]}`],
           ['Packaging', (c) => `${money(c.packaging.amount)} ${BASIS[c.packaging.basis]}`], ['Fulfilment', (c) => `${money(c.fulfillment.amount)} ${BASIS[c.fulfillment.basis]}`],
         ]} empty="No rates yet." />
-        {!form ? <button type="button" style={primary} onClick={() => setForm({ storage: '', packaging: '', packagingBasis: 'per_order', fulfillment: '', fulfillmentBasis: 'per_unit', effectiveFrom: '', reason: '' })}>New rate version</button> : (
-          <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'end', marginTop: 8, fontSize: 12 }}>
-            <label>Storage ₹/unit <input type="number" min="0" step="0.01" style={{ width: 80 }} value={form.storage} onChange={(e) => setForm({ ...form, storage: e.target.value })} /></label>
-            <label>Packaging ₹ <input type="number" min="0" step="0.01" style={{ width: 80 }} value={form.packaging} onChange={(e) => setForm({ ...form, packaging: e.target.value })} />
-              <select value={form.packagingBasis} onChange={(e) => setForm({ ...form, packagingBasis: e.target.value })}><option value="per_order">per order</option><option value="per_unit">per unit</option></select></label>
-            <label>Fulfilment ₹ <input type="number" min="0" step="0.01" style={{ width: 80 }} value={form.fulfillment} onChange={(e) => setForm({ ...form, fulfillment: e.target.value })} />
-              <select value={form.fulfillmentBasis} onChange={(e) => setForm({ ...form, fulfillmentBasis: e.target.value })}><option value="per_unit">per unit</option><option value="per_order">per order</option></select></label>
-            <label>Effective from <input type="datetime-local" value={form.effectiveFrom} onChange={(e) => setForm({ ...form, effectiveFrom: e.target.value })} /></label>
-            <label style={{ flex: 1 }}>Reason <input style={{ width: '100%' }} value={form.reason} onChange={(e) => setForm({ ...form, reason: e.target.value })} /></label>
-            <button type="button" style={primary} disabled={busy || form.reason.trim().length < 5 || form.storage === '' || form.packaging === '' || form.fulfillment === ''} onClick={saveRates}>Save version</button>
-            <button type="button" style={btn} onClick={() => setForm(null)}>Cancel</button>
+        {form && (
+          <div className="fbb-form-panel">
+            <h4>New rate version</h4>
+            <div className="fbb-form">
+              <Field label="Storage" hint="₹ per unit, charged when stock is received">{amount('storage')}</Field>
+              <Field label="Packaging" hint="₹, charged when the order is packed"><div className="fbb-input-group">{amount('packaging')}{basis('packagingBasis')}</div></Field>
+              <Field label="Fulfilment" hint="₹, charged when the parcel leaves the warehouse"><div className="fbb-input-group">{amount('fulfillment')}{basis('fulfillmentBasis')}</div></Field>
+              <Field label="Effective from" hint="Leave empty to start now"><input type="datetime-local" value={form.effectiveFrom} onChange={(e) => setForm({ ...form, effectiveFrom: e.target.value })} /></Field>
+              <Field label="Reason for the change" span={2} hint="At least 5 characters"><input value={form.reason} onChange={(e) => setForm({ ...form, reason: e.target.value })} placeholder="e.g. Revised warehouse costs from 1 Dec" /></Field>
+            </div>
+            <div className="fbb-actions">
+              <Btn primary disabled={busy || form.reason.trim().length < 5 || form.storage === '' || form.packaging === '' || form.fulfillment === ''} onClick={saveRates}>Save version</Btn>
+              <Btn onClick={() => setForm(null)}>Cancel</Btn>
+            </div>
           </div>
         )}
       </section>
-      <section style={box}>
-        <h3>Outstanding by seller</h3>
-        <p style={{ fontSize: 12 }}>Outstanding charges are deducted from eligible earnings automatically before payouts. Sellers can also pay in advance. Sellers are never suspended automatically.</p>
+      <section>
+        <CardHead title="Outstanding by seller">
+          Outstanding charges are deducted from eligible earnings automatically before payouts. Sellers can also pay in advance. Sellers are never suspended automatically.
+        </CardHead>
         <Refused error={billing.error} />
         <Table rows={billing.data || []} columns={[
-          ['Seller', (s) => s.sellerName || String(s.sellerId)], ['Outstanding', (s) => money(s.outstanding)],
-          ['', (s) => <button type="button" style={btn} disabled={busy} onClick={() => settle(s)}>Deduct from earnings now</button>],
+          ['Seller', (s) => <strong>{s.sellerName || String(s.sellerId)}</strong>], ['Outstanding', (s) => money(s.outstanding)],
+          ['', (s) => <Btn disabled={busy} onClick={() => settle(s)}>Deduct from earnings now</Btn>],
         ]} empty="No seller owes FBB charges." />
       </section>
-      <section style={box}>
-        <h3>Charges</h3>
+      <section>
+        <CardHead title="Charges" />
         <Refused error={charges.error} />
         <Table rows={charges.data?.rows || []} columns={[
           ['When', (c) => when(c.createdAt)], ['Type', (c) => TYPE[c.type] || c.type], ['For', (c) => c.orderId?.orderNo || c.receiptId?.receiptNo || '—'], ['Qty', (c) => c.qty],
-          ['Rate', (c) => `${money(c.rate)} ${BASIS[c.basis] || ''}`], ['Amount', (c) => money(c.amount)], ['Rate version', (c) => c.configVersion], ['Status', (c) => <Badge value={c.status} />],
-          ['', (c) => c.status === 'posted' && c.amountPaise > 0 && <button type="button" style={btn} disabled={busy} onClick={() => reverse(c)}>Reverse</button>],
+          ['Rate', (c) => `${money(c.rate)} ${BASIS[c.basis] || ''}`], ['Amount', (c) => <strong>{money(c.amount)}</strong>], ['Version', (c) => `v${c.configVersion}`], ['Status', (c) => <Badge value={c.status} />],
+          ['', (c) => c.status === 'posted' && c.amountPaise > 0 && <Btn disabled={busy} onClick={() => reverse(c)}>Reverse</Btn>],
         ]} empty="No charges yet." />
       </section>
-      <section style={box}>
-        <h3>Ledger check</h3>
+      <section>
+        <CardHead title="Ledger check" />
         <Refused error={recon.error} />
-        {recon.data && <p style={{ fontSize: 13 }}>{recon.data.checked} charges checked; {recon.data.problems.length ? <strong style={{ color: '#b42318' }}>{recon.data.problems.length} problem(s)</strong> : 'every charge matches its ledger entry.'}</p>}
-        {recon.data?.problems?.length > 0 && <ul style={{ fontSize: 12 }}>{recon.data.problems.map((p, i) => <li key={i}>{typeof p === 'string' ? p : JSON.stringify(p)}</li>)}</ul>}
+        {recon.data && <p className={recon.data.problems.length ? 'fbb-error' : 'fbb-ok'}>{recon.data.checked} charges checked; {recon.data.problems.length ? `${recon.data.problems.length} problem(s)` : 'every charge matches its ledger entry.'}</p>}
+        {recon.data?.problems?.length > 0 && <ul>{recon.data.problems.map((p, i) => <li key={i}>{typeof p === 'string' ? p : JSON.stringify(p)}</li>)}</ul>}
       </section>
     </>
   );
 }
 
-const VIEWS = { overview: Overview, warehouses: Warehouses, pilot: PilotSellers, receiving: Receiving, stock: Stock, adjustments: Adjustments, orders: Orders, returns: Returns, charges: Charges };
+const VIEWS = { overview: Overview, products: Products, warehouses: Warehouses, pilot: PilotSellers, receiving: Receiving, stock: Stock, adjustments: Adjustments, orders: Orders, returns: Returns, charges: Charges };
 
 export default function FbbTab() {
-  const [section, setSection] = useState('overview');
+  const [section, setSection] = useState(() => sectionFromUrl() || 'overview');
+  const [preset, setPreset] = useState(null);
+  // A notification opens a section through ?section=… (same tab already open → the event re-reads it).
+  useEffect(() => {
+    const open = () => { const s = sectionFromUrl(); if (s) setSection(s); };
+    window.addEventListener('fbb-section-open', open);
+    return () => window.removeEventListener('fbb-section-open', open);
+  }, []);
+  // Keep the open section in the URL, so a refresh or a shared link lands on the same section.
+  useEffect(() => {
+    if (window.location.pathname.replace(/\/$/, '') === '/admin/fbb' && sectionFromUrl() !== section) {
+      window.history.replaceState(null, '', section === 'overview' ? '/admin/fbb' : `/admin/fbb?section=${section}`);
+    }
+  }, [section]);
+  const go = useCallback((s) => { setSection(s); window.scrollTo?.({ top: 0, behavior: 'smooth' }); }, []);
+  const clearPreset = useCallback(() => setPreset(null), []);
   const View = VIEWS[section];
+  const props = section === 'overview' ? { go }
+    : section === 'products' ? { onReceive: (p) => { setPreset({ sellerId: String(p.sellerId?._id || p.sellerId), productId: String(p._id) }); go('receiving'); } }
+      : section === 'receiving' ? { preset, clearPreset } : {};
   return (
     <div className="fbb-ws">
       <div className="fbb-ws-head">
@@ -570,7 +828,7 @@ export default function FbbTab() {
       <nav aria-label="FBB sections" className="fbb-tabs">
         {SECTIONS.map(([id, label]) => <button key={id} type="button" aria-current={section === id ? 'page' : undefined} className={`fbb-tab${section === id ? ' is-active' : ''}`} onClick={() => setSection(id)}>{label}</button>)}
       </nav>
-      <View key={section} />
+      <View key={section} {...props} />
     </div>
   );
 }

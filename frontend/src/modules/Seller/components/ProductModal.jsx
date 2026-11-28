@@ -314,6 +314,15 @@ export const ProductModal = () => {
     ...f, variants: (f.variants || []).map((v, i) => (i === index ? { ...v, options: { ...(v.options || {}), [code]: value } } : v)),
   }));
 
+  // FBB: the seller does not set stock. It is 0 until the Bulkimart warehouse receives and verifies the units
+  // (the server zeroes it too); keep every variant at 0 so the form never suggests otherwise.
+  const isFbbListing = newProductForm.deliveryMethod === 'fbb';
+  useEffect(() => {
+    if (isFbbListing && variants.some((v) => String(v.stock) !== '0' && !(isEditing && editingProduct?.deliveryMethod === 'fbb'))) {
+      setNewProductForm((f) => ({ ...f, variants: (f.variants || []).map((v) => ({ ...v, stock: 0 })) }));
+    }
+  }, [isFbbListing, variants, isEditing, editingProduct?.deliveryMethod]); // eslint-disable-line react-hooks/exhaustive-deps
+
   const updateVariant = (index, field, value) => {
     setNewProductForm((f) => ({
       ...f,
@@ -884,6 +893,12 @@ export const ProductModal = () => {
                     onConverted={() => { sellerCtx.fetchMyProducts?.(); setShowAddProductModal(false); setEditingProductId(null); }}
                   />
                 )}
+                {isFbbListing && (
+                  <p role="note" style={{ margin: '8px 0 0', padding: '10px 12px', fontSize: 12.5, lineHeight: 1.5, color: '#0369a1', background: '#f0f9ff', border: '1px solid #bae6fd', borderRadius: 10 }}>
+                    📦 <strong>Stock is not entered here.</strong> It stays 0 until the Bulkimart warehouse receives and checks your units.
+                    After saving, open <strong>FBB Warehouse</strong> for the warehouse address and send your stock there with an invoice or challan.
+                  </p>
+                )}
 
                 {/* Same-Day, only on the Ecommerce/Shop All leg. */}
                 {isEditing && !wholesaleProductEditor && !isDigital && showSameDayBlock && (
@@ -969,8 +984,8 @@ export const ProductModal = () => {
                               onChange={(e) => updateVariant(i, 'mrp', e.target.value)} />
                           </div>
                           </>}<div style={S.variantField}>
-                            <label style={S.microLabel}>STOCK *</label>
-                            <input readOnly={wholesaleOnly||savingWholesale||savingProduct} type="number" min="0" className="onboarding-input" placeholder="25" value={v.stock} aria-label={`Variant ${i+1} stock`}
+                            <label style={S.microLabel}>{isFbbListing ? 'STOCK (WAREHOUSE)' : 'STOCK *'}</label>
+                            <input readOnly={isFbbListing||wholesaleOnly||savingWholesale||savingProduct} title={isFbbListing ? 'Set by the Bulkimart warehouse when it receives your stock' : undefined} type="number" min="0" className="onboarding-input" placeholder="25" value={v.stock} aria-label={`Variant ${i+1} stock`}
                               style={{ width: '100%', boxSizing: 'border-box', minWidth: 0 }}
                               onChange={(e) => updateVariant(i, 'stock', e.target.value)} />
                           </div>
