@@ -37,3 +37,13 @@ export const describeFbbRates = (preview) => {
     preview.taxNote,
   ].filter(Boolean).join('\n');
 };
+
+// "I've sent stock": tell Bulkimart what is on its way (information only; stock comes from the warehouse count).
+// Reuse the same idempotencyKey when retrying one submit so it is recorded once.
+export const sendFbbShipment = (payload) => api.post('/api/sellers/fbb/shipments', payload).then((body) => body?.data);
+
+// Withdraw a shipment notice sent by mistake (only before the warehouse counts it).
+export const cancelFbbShipment = (shipmentId) => {
+  if (!isObjectId(shipmentId)) return Promise.reject(new Error('Invalid shipment reference'));
+  return api.post(`/api/sellers/fbb/shipments/${encodeURIComponent(shipmentId)}/cancel`, {}).then((body) => body?.data);
+};

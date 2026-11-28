@@ -96,6 +96,7 @@ PASSWORDS-README.txt
 !/backend/__tests__/api/shiprocket-cod.http.test.js
 !/backend/__tests__/api/fbb.http.test.js
 !/backend/__tests__/api/fbb-closure.http.test.js
+!/backend/__tests__/api/fbb-shipment.http.test.js
 !/backend/__tests__/services/
 /backend/__tests__/services/*
 !/backend/__tests__/services/delivery-method.test.js

@@ -136,7 +136,7 @@ function Overview({ go }) {
   const stats = [
     ['Active warehouses', data.counts.warehouses, false, 'warehouses'], ['Pilot sellers', data.counts.pilotSellers ?? 0, false, 'pilot'],
     ['FBB products', data.counts.fbbProducts, false, 'products'], ['Orders to fulfil', data.counts.openOrders, true, 'orders'],
-    ['Receipts to post', data.counts.draftReceipts, true, 'receiving'], ['Adjustments to approve', data.counts.pendingAdjustments, true, 'adjustments'],
+    ['Stock on the way', data.counts.shipmentsOnTheWay ?? 0, true, 'receiving'], ['Receipts to post', data.counts.draftReceipts, true, 'receiving'], ['Adjustments to approve', data.counts.pendingAdjustments, true, 'adjustments'],
   ];
   return (
     <>
@@ -229,7 +229,7 @@ function Products({ onReceive }) {
             ['Added to FBB', (p) => <>{when(p.fbb?.convertedAt || p.createdAt)}<div className="fbb-sub">{p.fbb?.fromMethod && p.fbb.fromMethod !== 'new_listing' ? `Moved from ${String(p.fbb.fromMethod).replace(/_/g, ' ')}` : 'New listing'}</div></>],
             ['In warehouse', (p) => (p.warehouse && (p.warehouse.sellable + p.warehouse.reserved + p.warehouse.quarantine + p.warehouse.damaged) > 0
               ? <div className="fbb-sub-stack"><span><strong>{p.warehouse.sellable}</strong> for sale</span>{p.warehouse.reserved > 0 && <span>{p.warehouse.reserved} reserved</span>}{p.warehouse.quarantine > 0 && <span>{p.warehouse.quarantine} to inspect</span>}{p.warehouse.damaged > 0 && <span>{p.warehouse.damaged} damaged</span>}</div>
-              : <Badge value="waiting" label="Waiting for stock" />)],
+              : p.onTheWay > 0 ? <Badge value="info" label={`On the way · ${p.onTheWay}`} /> : <Badge value="waiting" label="Waiting for stock" />)],
             ['', (p) => <Btn primary onClick={() => onReceive(p)}>Count delivery</Btn>],
           ]} />
         </>
@@ -345,12 +345,22 @@ function Receiving({ preset, clearPreset }) {
   const warehouses = useLoad('/fbb/warehouses');
   const products = useLoad('/fbb/products');
   const receipts = useLoad('/fbb/receipts?limit=50');
+  const shipments = useLoad('/fbb/shipments?status=in_transit');
   const { busy, act } = useAct();
   const [draft, setDraft] = useState(null);
   const activeWarehouses = (warehouses.data || []).filter((w) => w.isActive);
   const newDraft = useCallback((sellerId = '', productId = '') => setDraft({
     key: key(), warehouseId: (warehouses.data || []).find((w) => w.isActive)?._id || '', sellerId, reference: '', notes: '', lines: [blankLine(productId)],
   }), [warehouses.data]);
+  // Count a delivery the seller announced: seller, warehouse and expected quantities come from their notice.
+  const fromShipment = (s) => {
+    setDraft({
+      key: key(), shipmentId: s._id, shipmentNo: s.shipmentNo, warehouseId: String(s.warehouseId?._id || s.warehouseId), sellerId: String(s.sellerId?._id || s.sellerId),
+      reference: [s.invoiceNo, s.trackingNo && `${s.courier ? `${s.courier} ` : ''}${s.trackingNo}`].filter(Boolean).join(' · ').slice(0, 100) || s.shipmentNo, notes: '',
+      lines: s.lines.map((l) => ({ ...blankLine(String(l.productId)), variantId: String(l.variantId), expectedQty: String(l.qty) })),
+    });
+    window.scrollTo?.({ top: 0, behavior: 'smooth' });
+  };
   // Opened from Products → "Count delivery": start a receipt for that seller and product.
   useEffect(() => {
     if (preset && warehouses.data) { newDraft(preset.sellerId, preset.productId); clearPreset(); }
@@ -365,15 +375,29 @@ function Receiving({ preset, clearPreset }) {
   const num = (v) => (v === '' ? undefined : Number(v));
   const save = () => act(() => adminPost('/fbb/receipts', {
     idempotencyKey: draft.key, warehouseId: draft.warehouseId, sellerId: draft.sellerId, reference: draft.reference, notes: draft.notes,
+    ...(draft.shipmentId ? { shipmentId: draft.shipmentId } : {}),
     lines: draft.lines.map((l) => ({ productId: l.productId, variantId: l.variantId, expectedQty: num(l.expectedQty), receivedQty: num(l.receivedQty), acceptedQty: num(l.acceptedQty), damagedQty: num(l.damagedQty), rejectedQty: num(l.rejectedQty), note: l.note })),
-  }), async () => { setDraft(null); await receipts.reload(); });
+  }), async () => { setDraft(null); await Promise.all([receipts.reload(), shipments.reload()]); });
   const post = (r) => window.confirm(`Post ${r.receiptNo}? Accepted units go on sale${r.storageCharged ? '' : ' and storage is charged'}. A posted receipt cannot be edited.`)
     && act(() => adminPost(`/fbb/receipts/${r._id}/post`), receipts.reload);
-  const cancel = (r) => window.confirm(`Cancel draft ${r.receiptNo}?`) && act(() => adminPost(`/fbb/receipts/${r._id}/cancel`), receipts.reload);
+  const cancel = (r) => window.confirm(`Cancel draft ${r.receiptNo}?`) && act(() => adminPost(`/fbb/receipts/${r._id}/cancel`), async () => { await Promise.all([receipts.reload(), shipments.reload()]); });
+  const units = (s) => s.lines.reduce((n, l) => n + l.qty, 0);
   const linesReady = draft?.lines.every((l) => l.productId && l.variantId && l.receivedQty !== '');
 
   return (
     <>
+      <section>
+        <CardHead title="Stock on the way">Sellers tell us here when they send stock. When the boxes arrive, click “Count this delivery”: the seller, warehouse and expected quantities are filled in.</CardHead>
+        <Refused error={shipments.error} />
+        <Table rows={shipments.data || []} empty="No seller has announced a shipment." columns={[
+          ['Shipment', (s) => <><strong>{s.shipmentNo}</strong><div className="fbb-sub">sent {when(s.createdAt)}</div></>],
+          ['Seller', (s) => sellerName(s.sellerId)], ['To', (s) => s.warehouseId?.name || '—'],
+          ['Items', (s) => <>{s.lines.map((l, i) => <div key={i}>{l.qty} × {l.productName}{l.variantName && l.variantName !== 'Default' ? ` (${l.variantName})` : ''}</div>)}<div className="fbb-sub">{units(s)} units</div></>],
+          ['Courier', (s) => <>{s.courier || '—'}{s.trackingNo && <div className="fbb-sub">{s.trackingNo}</div>}</>],
+          ['Invoice / note', (s) => <>{s.invoiceNo || '—'}{s.expectedBy && <div className="fbb-sub">expected {new Date(s.expectedBy).toLocaleDateString('en-IN')}</div>}{s.note && <div className="fbb-sub">{s.note}</div>}</>],
+          ['', (s) => <Btn primary disabled={Boolean(draft)} title={draft ? 'Finish or discard the receipt below first' : undefined} onClick={() => fromShipment(s)}>Count this delivery</Btn>],
+        ]} />
+      </section>
       <section>
         <CardHead title="Count a delivery" action={!draft && <Btn primary onClick={() => newDraft()}>+ New receipt</Btn>}>
           When a seller’s stock arrives, record what came in. Save it as a draft, check it, then post it. Only accepted units go on sale and are charged storage.
@@ -381,6 +405,7 @@ function Receiving({ preset, clearPreset }) {
         <Refused error={warehouses.error || products.error} />
         {draft && (
           <div className="fbb-form-panel">
+            {draft.shipmentNo && <p className="fbb-ok" style={{ marginBottom: 14 }}>Counting seller shipment <strong>{draft.shipmentNo}</strong>. Expected quantities are what the seller said they sent; enter what actually arrived.</p>}
             <h4>1. Delivery details</h4>
             <div className="fbb-form">
               <Field label="Warehouse">

@@ -10,6 +10,8 @@ import WarehouseReceipt from '../models/WarehouseReceipt.js';
 import WarehouseAdjustment from '../models/WarehouseAdjustment.js';
 import StockMovement from '../models/StockMovement.js';
 import { alertSellerStockArrived, alertSellerStockPosted } from '../services/fbbAdminAlerts.service.js';
+import FbbShipment from '../models/FbbShipment.js';
+import { listShipmentsAdmin, linkShipmentToReceipt, unlinkShipmentFromReceipt } from '../services/fbbShipment.service.js';
 import { fbbEnabled, fbbChargesEnabled, warehouseOperationsEnabled, deliveryMethodsEnabled, fbbAllSellersEnabled } from '../services/deliveryMethod.service.js';
 import { fbbServiceabilityStrict } from '../services/fbbServiceability.service.js';
 import { fbbReadiness, saveWarehouse, createReceipt, postReceipt, cancelDraftReceipt, requestAdjustment, decideAdjustment, inventoryReconciliation, resyncMirror } from '../services/warehouse.service.js';
@@ -34,6 +36,7 @@ export const getFbbOverview = asyncHandler(async (_req, res) => ok(res, {
     fbbProducts: await Product.countDocuments({ deliveryMethod: 'fbb', isDeleted: { $ne: true } }),
     openOrders: await Order.countDocuments({ deliveryMethod: 'fbb', status: { $in: ['placed', 'confirmed', 'preparing'] } }),
     draftReceipts: await WarehouseReceipt.countDocuments({ status: 'draft' }),
+    shipmentsOnTheWay: await FbbShipment.countDocuments({ status: 'in_transit' }),
     pendingAdjustments: await WarehouseAdjustment.countDocuments({ status: 'pending' }),
   },
 }));
@@ -84,9 +87,14 @@ export const listFbbProductsForReceiving = asyncHandler(async (req, res) => {
     { $match: { productId: { $in: products.map((p) => p._id) } } },
     { $group: { _id: '$productId', sellable: { $sum: '$sellable' }, reserved: { $sum: '$reserved' }, quarantine: { $sum: { $ifNull: ['$quarantine', 0] } }, damaged: { $sum: '$damaged' } } },
   ])).map((t) => [String(t._id), t]));
+  // Units sellers say are on the way (shipment notices not yet counted).
+  const onTheWay = new Map((await FbbShipment.aggregate([
+    { $match: { status: 'in_transit', 'lines.productId': { $in: products.map((p) => p._id) } } },
+    { $unwind: '$lines' }, { $group: { _id: '$lines.productId', qty: { $sum: '$lines.qty' } } },
+  ])).map((t) => [String(t._id), t.qty]));
   return ok(res, products.map((p) => {
     const t = totals.get(String(p._id));
-    return { ...p, warehouse: t ? { sellable: t.sellable, reserved: t.reserved, quarantine: t.quarantine, damaged: t.damaged } : null };
+    return { ...p, onTheWay: onTheWay.get(String(p._id)) || 0, warehouse: t ? { sellable: t.sellable, reserved: t.reserved, quarantine: t.quarantine, damaged: t.damaged } : null };
   }));
 });
 export const listWarehouseStock = asyncHandler(async (req, res) => {
@@ -115,15 +123,30 @@ export const listReceipts = asyncHandler(async (req, res) => {
 });
 export const createReceiptAdmin = asyncHandler(async (req, res) => {
   const result = await createReceipt({ ...req.body, idempotencyKey: req.get('Idempotency-Key') || req.body?.idempotencyKey, adminId: req.user._id });
-  if (!result.alreadyRecorded) void alertSellerStockArrived(result.receipt);
+  if (!result.alreadyRecorded) {
+    // Counted from a seller's "I've sent stock" notice: mark that shipment received (same seller, still in transit).
+    await linkShipmentToReceipt({ shipmentId: req.body?.shipmentId, receipt: result.receipt })
+      .catch((error) => console.error('[FBB] shipment link failed:', error.message));
+    void alertSellerStockArrived(result.receipt);
+  }
   return ok(res, result.receipt, result.alreadyRecorded ? 'Receipt already recorded' : 'Receipt counted (draft). Verify and post it to add the stock.');
+});
+export const listShipments = asyncHandler(async (req, res) => {
+  const status = ['in_transit', 'received', 'cancelled'].includes(req.query.status) ? req.query.status : undefined;
+  return ok(res, await listShipmentsAdmin({ status }));
 });
 export const postReceiptAdmin = asyncHandler(async (req, res) => {
   const result = await postReceipt({ receiptId: req.params.id, adminId: req.user._id });
   if (!result.alreadyPosted) void alertSellerStockPosted(result.receipt);
   return ok(res, result.receipt, result.alreadyPosted ? 'Receipt already posted' : 'Receipt posted: accepted units are now on sale');
 });
-export const cancelReceiptAdmin = asyncHandler(async (req, res) => ok(res, await cancelDraftReceipt({ receiptId: oid(req.params.id, 'receipt') }), 'Draft receipt cancelled'));
+export const cancelReceiptAdmin = asyncHandler(async (req, res) => {
+  const receiptId = oid(req.params.id, 'receipt');
+  const cancelled = await cancelDraftReceipt({ receiptId });
+  // Not counted after all: a linked seller shipment is "on the way" again.
+  await unlinkShipmentFromReceipt(receiptId).catch((error) => console.error('[FBB] shipment unlink failed:', error.message));
+  return ok(res, cancelled, 'Draft receipt cancelled');
+});
 export const listAdjustments = asyncHandler(async (req, res) => ok(res, await WarehouseAdjustment.find(req.query.status ? { status: req.query.status } : {}).sort({ createdAt: -1 }).limit(200).populate('productId', 'name').populate('sellerId', 'businessName').lean()));
 export const requestAdjustmentAdmin = asyncHandler(async (req, res) => created(res, await requestAdjustment({ ...req.body, adminId: req.user._id }), 'Adjustment requested; a different admin must approve it'));
 export const decideAdjustmentAdmin = asyncHandler(async (req, res) => ok(res, await decideAdjustment({ adjustmentId: oid(req.params.id, 'adjustment'), adminId: req.user._id, approve: req.body?.approve === true, note: req.body?.note }), req.body?.approve === true ? 'Adjustment approved and applied' : 'Adjustment rejected'));

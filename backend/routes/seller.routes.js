@@ -24,6 +24,8 @@ import {
   getSellerFbb,
   startSellerFbbPayment,
   verifySellerFbbPayment,
+  createSellerFbbShipment,
+  cancelSellerFbbShipment,
 } from '../controllers/seller.controller.js';
 import { listSellerReturns, getSellerReturn, sellerDecideReturnCtrl, assignRiderForReturn, sellerConfirmReturnReceived, selectReturnPickup, refreshReturnCourier, cancelReturnPickup, getReturnPickupOptions } from '../controllers/return.controller.js';
 import {
@@ -141,6 +143,8 @@ router.put('/self-delivery-area', requireApprovedSeller, updateSelfDeliveryArea)
 router.get('/fbb', requireApprovedSeller, getSellerFbb);
 router.post('/fbb/payments', requireApprovedSeller, startSellerFbbPayment);
 router.post('/fbb/payments/verify', requireApprovedSeller, verifySellerFbbPayment);
+router.post('/fbb/shipments', requireApprovedSeller, createSellerFbbShipment);
+router.post('/fbb/shipments/:id/cancel', requireApprovedSeller, cancelSellerFbbShipment);
 router.get('/orders/:id/financial-breakdown', requireApprovedSeller, getSellerOrderFinance);
 router.get('/orders/:id/invoice', requireApprovedSeller, getSellerOrderInvoice);
 router.get('/orders/:id/credit-notes', requireApprovedSeller, getSellerOrderCreditNotes);

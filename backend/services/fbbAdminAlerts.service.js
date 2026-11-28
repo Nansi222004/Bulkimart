@@ -60,3 +60,17 @@ export const alertSellerStockPosted = (receipt) => {
     route: sellerRoute,
   }).catch(logFailure('seller posted'));
 };
+
+/** A seller says stock is on its way to the warehouse ("I've sent stock"). */
+export const alertAdminsShipmentSent = (shipment, { sellerName, warehouseName } = {}) => {
+  const units = (shipment.lines || []).reduce((n, l) => n + (Number(l.qty) || 0), 0);
+  const via = [shipment.courier, shipment.trackingNo && `tracking ${shipment.trackingNo}`].filter(Boolean).join(', ');
+  return notifyAllAdmins({
+    event: NOTIFICATION_EVENT.SYSTEM,
+    dedupeKey: `fbb-shipment:${shipment._id}`,
+    title: 'FBB stock on the way',
+    message: `${sellerName || 'A seller'} sent ${units} units (${shipment.lines.length} product${shipment.lines.length === 1 ? '' : 's'}) to ${warehouseName || 'the warehouse'}${via ? ` via ${via}` : ''}. Shipment ${shipment.shipmentNo}.`,
+    metadata: { sellerId: shipment.sellerId },
+    route: route('receiving'),
+  }).catch(logFailure('shipment'));
+};

@@ -35,6 +35,7 @@ router.put('/pilot-sellers/:sellerId', fbb.setFbbPilotSeller);
 router.get('/products', fbb.listFbbProductsForReceiving);
 router.get('/stock', fbb.listWarehouseStock);
 router.get('/movements', fbb.listWarehouseMovements);
+router.get('/shipments', fbb.listShipments);
 router.get('/receipts', fbb.listReceipts);
 router.post('/receipts', fbb.createReceiptAdmin);
 router.post('/receipts/:id/post', fbb.postReceiptAdmin);

@@ -49,7 +49,7 @@ export default function FbbScreen() {
       <Text style={type.small}>Bulkimart stores, packs and ships these products from its warehouse. Stock changes only when the warehouse receives, sells or inspects returned units; ask Bulkimart support for any correction.</Text>
       {!data.available ? <InlineNotice tone="info">Fulfilled by Bulkimart is closed to new listings and orders right now. Existing stock, orders and charges continue as usual.</InlineNotice> : null}
 
-      <FbbSendStock data={data} />
+      <FbbSendStock data={data} onChanged={reload} />
 
       <Card title="What you owe">
         <View style={styles.rows}>
